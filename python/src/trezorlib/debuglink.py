@@ -15,9 +15,10 @@
 # If not, see <https://www.gnu.org/licenses/lgpl-3.0.html>.
 
 import logging
+import re
 import textwrap
-from collections import namedtuple
 from copy import deepcopy
+from datetime import datetime
 from enum import IntEnum
 from itertools import zip_longest
 from pathlib import Path
@@ -35,9 +36,11 @@ from typing import (
     Tuple,
     Type,
     Union,
+    overload,
 )
 
 from mnemonic import Mnemonic
+from typing_extensions import Literal
 
 from . import mapping, messages, protobuf
 from .client import TrezorClient
@@ -55,13 +58,129 @@ if TYPE_CHECKING:
 
 EXPECTED_RESPONSES_CONTEXT_LINES = 3
 
-LayoutLines = namedtuple("LayoutLines", "lines text")
-
 LOG = logging.getLogger(__name__)
 
 
-def layout_lines(lines: Sequence[str]) -> LayoutLines:
-    return LayoutLines(lines, " ".join(lines))
+class LayoutContent:
+    """Stores content of a layout as returned from Trezor.
+
+    Contains helper functions to extract specific parts of the layout.
+    """
+
+    def __init__(self, lines: Sequence[str]) -> None:
+        self.lines = list(lines)
+        self.text = " ".join(self.lines)
+
+    def get_title(self) -> str:
+        """Get title of the layout.
+
+        Title is located between "title" and "content" identifiers.
+        Example: "< Frame title :  RECOVERY SHARE #1 content :  < SwipePage"
+          -> "RECOVERY SHARE #1"
+        """
+        match = re.search(r"title : (.*?) content :", self.text)
+        if not match:
+            return ""
+        return match.group(1).strip()
+
+    def get_content(self, tag_name: str = "Paragraphs", raw: bool = False) -> str:
+        """Get text of the main screen content of the layout."""
+        content = "".join(self._get_content_lines(tag_name, raw))
+        if not raw and content.endswith(" "):
+            # Stripping possible space at the end
+            content = content[:-1]
+        return content
+
+    def get_button_texts(self) -> List[str]:
+        """Get text of all buttons in the layout.
+
+        Example button: "< Button text :  LADYBUG >"
+          -> ["LADYBUG"]
+        """
+        return re.findall(r"< Button text : +(.*?) >", self.text)
+
+    def get_seed_words(self) -> List[str]:
+        """Get all the seed words on the screen in order.
+
+        Example content: "1. ladybug 2. acid 3. academic 4. afraid"
+          -> ["ladybug", "acid", "academic", "afraid"]
+        """
+        return re.findall(r"\d+\. (\w+)\b", self.get_content())
+
+    def get_page_count(self) -> int:
+        """Get number of pages for the layout."""
+        return self._get_number("page_count")
+
+    def get_active_page(self) -> int:
+        """Get current page index of the layout."""
+        return self._get_number("active_page")
+
+    def _get_number(self, key: str) -> int:
+        """Get number connected with a specific key."""
+        match = re.search(rf"{key} : +(\d+)", self.text)
+        if not match:
+            return 0
+        return int(match.group(1))
+
+    def _get_content_lines(
+        self, tag_name: str = "Paragraphs", raw: bool = False
+    ) -> List[str]:
+        """Get lines of the main screen content of the layout."""
+
+        # First line should have content after the tag, last line does not store content
+        tag = f"< {tag_name}"
+        if tag in self.lines[0]:
+            first_line = self.lines[0].split(tag)[1]
+            all_lines = [first_line] + self.lines[1:-1]
+        else:
+            all_lines = self.lines[1:-1]
+
+        if raw:
+            return all_lines
+        else:
+            return [_clean_line(line) for line in all_lines]
+
+
+def _clean_line(line: str) -> str:
+    """Cleaning the layout line for extra spaces, hyphens and ellipsis.
+
+    Line usually comes in the form of " <content> ", with trailing spaces
+    at both ends. It may end with a hyphen (" - ") or ellipsis (" ... ").
+
+    Hyphen means the word was split to the next line, ellipsis signals
+    the text continuing on the next page.
+    """
+    # Deleting space at the beginning
+    if line.startswith(" "):
+        line = line[1:]
+
+    # Deleting a hyphen at the end, together with the space
+    # before it, so it will be tightly connected with the next line
+    if line.endswith(" - "):
+        line = line[:-3]
+
+    # Deleting the ellipsis at the end (but preserving the space there)
+    if line.endswith(" ... "):
+        line = line[:-4]
+
+    return line
+
+
+def multipage_content(layouts: List[LayoutContent]) -> str:
+    """Get overall content from multiple-page layout."""
+    final_text = ""
+    for layout in layouts:
+        final_text += layout.get_content()
+        # When the raw content of the page ends with ellipsis,
+        # we need to add a space to separate it with the next page
+        if layout.get_content(raw=True).endswith("... "):
+            final_text += " "
+
+    # Stripping possible space at the end of last page
+    if final_text.endswith(" "):
+        final_text = final_text[:-1]
+
+    return final_text
 
 
 class DebugLink:
@@ -77,6 +196,15 @@ class DebugLink:
         self.t1_take_screenshots = False
         self.t1_screenshot_directory: Optional[Path] = None
         self.t1_screenshot_counter = 0
+
+        # Optional file for saving text representation of the screen
+        self.screen_text_file: Optional[Path] = None
+        self.last_screen_content = ""
+
+    def set_screen_text_file(self, file_path: Optional[Path]) -> None:
+        if file_path is not None:
+            file_path.write_bytes(b"")
+        self.screen_text_file = file_path
 
     def open(self) -> None:
         self.transport.begin_session()
@@ -113,14 +241,14 @@ class DebugLink:
     def state(self) -> messages.DebugLinkState:
         return self._call(messages.DebugLinkGetState())
 
-    def read_layout(self) -> LayoutLines:
-        return layout_lines(self.state().layout_lines)
+    def read_layout(self) -> LayoutContent:
+        return LayoutContent(self.state().layout_lines)
 
-    def wait_layout(self) -> LayoutLines:
+    def wait_layout(self) -> LayoutContent:
         obj = self._call(messages.DebugLinkGetState(wait_layout=True))
         if isinstance(obj, messages.Failure):
             raise TrezorFailure(obj)
-        return layout_lines(obj.layout_lines)
+        return LayoutContent(obj.layout_lines)
 
     def watch_layout(self, watch: bool) -> None:
         """Enable or disable watching layouts.
@@ -162,7 +290,7 @@ class DebugLink:
         y: Optional[int] = None,
         wait: Optional[bool] = None,
         hold_ms: Optional[int] = None,
-    ) -> Optional[LayoutLines]:
+    ) -> Optional[LayoutContent]:
         if not self.allow_interactions:
             return None
 
@@ -173,15 +301,57 @@ class DebugLink:
         decision = messages.DebugLinkDecision(
             button=button, swipe=swipe, input=word, x=x, y=y, wait=wait, hold_ms=hold_ms
         )
+
         ret = self._call(decision, nowait=not wait)
         if ret is not None:
-            return layout_lines(ret.lines)
+            return LayoutContent(ret.lines)
+
+        # Getting the current screen after the (nowait) decision
+        self.save_current_screen_if_relevant(wait=False)
 
         return None
 
+    def save_current_screen_if_relevant(self, wait: bool = True) -> None:
+        """Optionally saving the textual screen output."""
+        if self.screen_text_file is None:
+            return
+
+        if wait:
+            layout = self.wait_layout()
+        else:
+            layout = self.read_layout()
+        self.save_debug_screen(layout.lines)
+
+    def save_debug_screen(self, lines: List[str]) -> None:
+        if self.screen_text_file is None:
+            return
+
+        content = "\n".join(lines)
+
+        # Not writing the same screen twice
+        if content == self.last_screen_content:
+            return
+
+        self.last_screen_content = content
+
+        with open(self.screen_text_file, "a") as f:
+            f.write(content)
+            f.write("\n" + 80 * "/" + "\n")
+
+    # Type overloads make sure that when we supply `wait=True` into `click()`,
+    # it will always return `LayoutContent` and we do not need to assert `is not None`.
+
+    @overload
+    def click(self, click: Tuple[int, int]) -> None:
+        ...
+
+    @overload
+    def click(self, click: Tuple[int, int], wait: Literal[True]) -> LayoutContent:
+        ...
+
     def click(
         self, click: Tuple[int, int], wait: bool = False
-    ) -> Optional[LayoutLines]:
+    ) -> Optional[LayoutContent]:
         x, y = click
         return self.input(x=x, y=y, wait=wait)
 
@@ -319,6 +489,12 @@ class DebugUI:
         self.debuglink.take_t1_screenshot_if_relevant()
 
         if self.input_flow is None:
+            # Only calling screen-saver when not in input-flow
+            # as it collides with wait-layout of input flows.
+            # All input flows call debuglink.input(), so
+            # recording their screens that way (as well as
+            # possible swipes below).
+            self.debuglink.save_current_screen_if_relevant(wait=True)
             if br.code == messages.ButtonRequestType.PinEntry:
                 self.debuglink.input(self.get_pin())
             else:
@@ -488,6 +664,11 @@ class TrezorClientDebugLink(TrezorClient):
             Callable[[protobuf.MessageType], protobuf.MessageType],
         ] = {}
 
+    def ensure_open(self) -> None:
+        """Only open session if there isn't already an open one."""
+        if self.session_counter == 0:
+            self.open()
+
     def open(self) -> None:
         super().open()
         if self.session_counter == 1:
@@ -585,7 +766,6 @@ class TrezorClientDebugLink(TrezorClient):
     def __exit__(self, exc_type: Any, value: Any, traceback: Any) -> None:
         __tracebackhide__ = True  # for pytest # pylint: disable=W0612
 
-        self.watch_layout(False)
         # copy expected/actual responses before clearing them
         expected_responses = self.expected_responses
         actual_responses = self.actual_responses
@@ -779,3 +959,51 @@ def self_test(client: "TrezorClient") -> protobuf.MessageType:
             payload=b"\x00\xFF\x55\xAA\x66\x99\x33\xCCABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\x00\xFF\x55\xAA\x66\x99\x33\xCC"
         )
     )
+
+
+def record_screen(
+    debug_client: "TrezorClientDebugLink",
+    directory: Union[str, None],
+    report_func: Union[Callable[[str], None], None] = None,
+) -> None:
+    """Record screen changes into a specified directory.
+
+    Passing `None` as `directory` stops the recording.
+
+    Creates subdirectories inside a specified directory, one for each session
+    (for each new call of this function).
+    (So that older screenshots are not overwritten by new ones.)
+
+    Is available only for emulators, hardware devices are not capable of that.
+    """
+
+    def get_session_screenshot_dir(directory: Path) -> Path:
+        """Create and return screenshot dir for the current session, according to datetime."""
+        session_dir = directory / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        session_dir.mkdir(parents=True, exist_ok=True)
+        return session_dir
+
+    if not _is_emulator(debug_client):
+        raise RuntimeError("Recording is only supported on emulator.")
+
+    if directory is None:
+        debug_client.debug.stop_recording()
+        if report_func is not None:
+            report_func("Recording stopped.")
+    else:
+        # Transforming the directory into an absolute path,
+        # because emulator demands it
+        abs_directory = Path(directory).resolve()
+        # Creating the dir when it does not exist yet
+        if not abs_directory.exists():
+            abs_directory.mkdir(parents=True, exist_ok=True)
+        # Getting a new screenshot dir for the current session
+        current_session_dir = get_session_screenshot_dir(abs_directory)
+        debug_client.debug.start_recording(str(current_session_dir))
+        if report_func is not None:
+            report_func(f"Recording started into {current_session_dir}.")
+
+
+def _is_emulator(debug_client: "TrezorClientDebugLink") -> bool:
+    """Check if we are connected to emulator, in contrast to hardware device."""
+    return debug_client.features.fw_vendor == "EMULATOR"

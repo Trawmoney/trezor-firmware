@@ -1,31 +1,28 @@
 # pylint: disable=wrong-import-position
-import math
 import utime
 from micropython import const
 from trezorui import Display
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Awaitable, Generator
 
-from trezor import io, loop, res, utils, workflow
-
-if TYPE_CHECKING:
-    from typing import Any, Awaitable, Generator
-
-    Pos = tuple[int, int]
-    Area = tuple[int, int, int, int]
+from trezor import io, loop, utils, workflow
 
 # all rendering is done through a singleton of `Display`
 display = Display()
 
 # re-export constants from modtrezorui
-NORMAL = Display.FONT_NORMAL
-BOLD = Display.FONT_BOLD
-MONO = Display.FONT_MONO
-WIDTH = Display.WIDTH
-HEIGHT = Display.HEIGHT
+NORMAL: int = Display.FONT_NORMAL
+BOLD: int = Display.FONT_BOLD
+MONO: int = Display.FONT_MONO
+WIDTH: int = Display.WIDTH
+HEIGHT: int = Display.HEIGHT
 
-# viewport margins
-VIEWX = const(6)
-VIEWY = const(9)
+if __debug__:
+    # common symbols to transfer swipes between debuglink and the UI
+    SWIPE_UP = const(0x01)
+    SWIPE_DOWN = const(0x02)
+    SWIPE_LEFT = const(0x04)
+    SWIPE_RIGHT = const(0x08)
+
 
 # channel used to cancel layouts, see `Cancelled` exception
 layout_chan = loop.chan()
@@ -53,32 +50,11 @@ if utils.EMULATOR or utils.MODEL in ("1", "R"):
     loop.after_step_hook = refresh
 
 
-def lerpi(a: int, b: int, t: float) -> int:
-    return int(a + t * (b - a))
-
-
-def rgb(r: int, g: int, b: int) -> int:
-    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3)
-
-
-def blend(ca: int, cb: int, t: float) -> int:
-    return rgb(
-        lerpi((ca >> 8) & 0xF8, (cb >> 8) & 0xF8, t),
-        lerpi((ca >> 3) & 0xFC, (cb >> 3) & 0xFC, t),
-        lerpi((ca << 3) & 0xF8, (cb << 3) & 0xF8, t),
-    )
-
-
 # import style later to avoid circular dep
 from trezor.ui import style  # isort:skip
 
 # import style definitions into namespace
 from trezor.ui.style import *  # isort:skip # noqa: F401,F403
-
-
-def pulse(period: int, offset: int = 0) -> float:
-    # normalize sin from interval -1:1 to 0:1
-    return 0.5 + 0.5 * math.sin(2 * math.pi * (utime.ticks_us() + offset) / period)
 
 
 async def _alert(count: int) -> None:
@@ -105,125 +81,21 @@ def alert(count: int = 3) -> None:
     loop.schedule(_alert(count))
 
 
-async def click() -> Pos:
-    touch = loop.wait(io.TOUCH)
-    while True:
-        ev, *pos = await touch
-        if ev == io.TOUCH_START:
-            break
-    while True:
-        ev, *pos = await touch
-        if ev == io.TOUCH_END:
-            break
-    return pos  # type: ignore [Expression of type "list[Unknown]" cannot be assigned to return type "Pos"]
-
-
 def backlight_fade(val: int, delay: int = 14000, step: int = 15) -> None:
     if __debug__:
         if utils.DISABLE_ANIMATION:
             display.backlight(val)
             return
     current = display.backlight()
-    if current > val:
+    if current < 0:
+        display.backlight(val)
+        return
+    elif current > val:
         step = -step
     for i in range(current, val, step):
         display.backlight(i)
         utime.sleep_us(delay)
-
-
-def header(
-    title: str,
-    icon: str = style.ICON_DEFAULT,
-    fg: int = style.FG,
-    bg: int = style.BG,
-    ifg: int = style.GREEN,
-) -> None:
-    if icon is not None:
-        display.icon(14, 15, res.load(icon), ifg, bg)
-    display.text(44, 35, title, BOLD, fg, bg)
-
-
-# Common for both header functions
-MODEL_HEADER_HEIGHTS = {"1": 12, "R": 15, "T": 30}
-MODEL_Y_BASELINES = {"1": 10, "R": 11, "T": 22}
-
-
-def header_warning(message: str, clear: bool = True) -> None:
-    height = MODEL_HEADER_HEIGHTS[utils.MODEL]
-    y_baseline = MODEL_Y_BASELINES[utils.MODEL]
-
-    display.bar(0, 0, WIDTH, height, style.YELLOW)
-    display.text_center(
-        WIDTH // 2, y_baseline, message, BOLD, style.BLACK, style.YELLOW
-    )
-    if clear:
-        display.bar(0, height, WIDTH, HEIGHT - height, style.BG)
-
-
-def header_error(message: str, clear: bool = True) -> None:
-    height = MODEL_HEADER_HEIGHTS[utils.MODEL]
-    y_baseline = MODEL_Y_BASELINES[utils.MODEL]
-
-    display.bar(0, 0, WIDTH, height, style.RED)
-    display.text_center(WIDTH // 2, y_baseline, message, BOLD, style.WHITE, style.RED)
-    if clear:
-        display.bar(0, height, WIDTH, HEIGHT - height, style.BG)
-
-
-def draw_simple(t: "Component") -> None:
-    """Render a component synchronously.
-
-    Useful when you need to put something on screen and go on to do other things.
-
-    This function bypasses the UI workflow engine, so other layouts will not know
-    that something was drawn over them. In particular, if no other Layout is shown
-    in a workflow, the homescreen will not redraw when the workflow is finished.
-    Make sure you use `workflow.close_others()` before invoking this function
-    (note that `workflow.close_others()` is implicitly called with `button_request()`).
-    """
-    backlight_fade(style.BACKLIGHT_DIM)
-    display.clear()
-    t.on_render()
-    refresh()
-    backlight_fade(style.BACKLIGHT_NORMAL)
-
-
-def grid(
-    i: int,  # i-th cell of the table of which we wish to return Area (snake-like starting with 0)
-    n_x: int = 3,  # number of rows in the table
-    n_y: int = 5,  # number of columns in the table
-    start_x: int = VIEWX,  # where the table starts on x-axis
-    start_y: int = VIEWY,  # where the table starts on y-axis
-    end_x: int = (WIDTH - VIEWX),  # where the table ends on x-axis
-    end_y: int = (HEIGHT - VIEWY),  # where the table ends on y-axis
-    cells_x: int = 1,  # number of cells to be merged into one in the direction of x-axis
-    cells_y: int = 1,  # number of cells to be merged into one in the direction of y-axis
-    spacing: int = 0,  # spacing size between cells
-) -> Area:
-    """
-    Returns area (tuple of four integers, in pixels) of a cell on i-th position
-    in a table you define yourself.  Example:
-
-    >>> ui.grid(4, n_x=2, n_y=3, start_x=20, start_y=20)
-    (20, 160, 107, 70)
-
-    Returns 5th cell from the following table.  It has two columns, three rows
-    and starts on coordinates 20-20.
-
-        |____|____|
-        |____|____|
-        |XXXX|____|
-    """
-    w = (end_x - start_x) // n_x
-    h = (end_y - start_y) // n_y
-    x = (i % n_x) * w
-    y = (i // n_x) * h
-    return (x + start_x, y + start_y, (w - spacing) * cells_x, (h - spacing) * cells_y)
-
-
-def in_area(area: Area, x: int, y: int) -> bool:
-    ax, ay, aw, ah = area
-    return ax <= x < ax + aw and ay <= y < ay + ah
+    display.backlight(val)
 
 
 # Component events.  Should be different from `io.TOUCH_*` events.
@@ -417,7 +289,7 @@ class Layout(Component):
 
     def _before_render(self) -> None:
         # Before the first render, we dim the display.
-        backlight_fade(style.BACKLIGHT_DIM)
+        backlight_fade(style.BACKLIGHT_NONE)
         # Clear the screen of any leftovers, make sure everything is marked for
         # repaint (we can be running the same layout instance multiple times)
         # and paint it.

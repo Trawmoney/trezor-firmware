@@ -19,8 +19,8 @@ import time
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import messages
-from .exceptions import Cancelled
-from .tools import expect, session
+from .exceptions import Cancelled, TrezorException
+from .tools import Address, expect, session
 
 if TYPE_CHECKING:
     from .client import TrezorClient
@@ -43,6 +43,7 @@ def apply_settings(
     display_rotation: Optional[int] = None,
     safety_checks: Optional[messages.SafetyCheckLevel] = None,
     experimental_features: Optional[bool] = None,
+    hide_passphrase_from_host: Optional[bool] = None,
 ) -> "MessageType":
     settings = messages.ApplySettings(
         label=label,
@@ -54,6 +55,7 @@ def apply_settings(
         display_rotation=display_rotation,
         safety_checks=safety_checks,
         experimental_features=experimental_features,
+        hide_passphrase_from_host=hide_passphrase_from_host,
     )
 
     out = client.call(settings)
@@ -220,7 +222,33 @@ def cancel_authorization(client: "TrezorClient") -> "MessageType":
     return client.call(messages.CancelAuthorization())
 
 
+@expect(messages.UnlockedPathRequest, field="mac", ret_type=bytes)
+def unlock_path(client: "TrezorClient", n: "Address") -> "MessageType":
+    resp = client.call(messages.UnlockPath(address_n=n))
+
+    # Cancel the UnlockPath workflow now that we have the authentication code.
+    try:
+        client.call(messages.Cancel())
+    except Cancelled:
+        return resp
+    else:
+        raise TrezorException("Unexpected response in UnlockPath flow")
+
+
 @session
 @expect(messages.Success, field="message", ret_type=str)
 def reboot_to_bootloader(client: "TrezorClient") -> "MessageType":
     return client.call(messages.RebootToBootloader())
+
+
+@expect(messages.Success, field="message", ret_type=str)
+@session
+def set_busy(client: "TrezorClient", expiry_ms: Optional[int]) -> "MessageType":
+    """Sets or clears the busy state of the device.
+
+    In the busy state the device shows a "Do not disconnect" message instead of the homescreen.
+    Setting `expiry_ms=None` clears the busy state.
+    """
+    ret = client.call(messages.SetBusy(expiry_ms=expiry_ms))
+    client.refresh_features()
+    return ret

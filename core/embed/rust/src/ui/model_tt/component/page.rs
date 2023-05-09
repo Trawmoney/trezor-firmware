@@ -1,14 +1,16 @@
 use crate::ui::{
     component::{
-        base::ComponentExt, paginated::PageMsg, Component, Event, EventCtx, Label, Pad, Paginate,
+        base::ComponentExt, paginated::PageMsg, Component, Event, EventCtx, FixedHeightBar, Label,
+        Pad, Paginate,
     },
-    display::{self, Color},
-    geometry::Rect,
+    display::{self, toif::Icon, Color},
+    geometry::{Insets, Rect},
+    model_tt::component::{Button, ButtonMsg},
 };
 
 use super::{
     hold_to_confirm::{handle_hold_event, CancelHold, CancelHoldMsg},
-    theme, Button, CancelConfirmMsg, Loader, ScrollBar, Swipe, SwipeDirection,
+    theme, CancelConfirmMsg, Loader, ScrollBar, Swipe, SwipeDirection,
 };
 
 pub struct SwipePage<T, U> {
@@ -18,8 +20,8 @@ pub struct SwipePage<T, U> {
     swipe: Swipe,
     scrollbar: ScrollBar,
     hint: Label<&'static str>,
+    button_back: Option<Button<&'static str>>,
     fade: Option<i32>,
-    button_rows: i32,
 }
 
 impl<T, U> SwipePage<T, U>
@@ -36,13 +38,13 @@ where
             swipe: Swipe::new(),
             pad: Pad::with_background(background),
             hint: Label::centered("SWIPE TO CONTINUE", theme::label_page_hint()),
+            button_back: None,
             fade: None,
-            button_rows: 1,
         }
     }
 
-    pub fn with_button_rows(mut self, rows: usize) -> Self {
-        self.button_rows = rows as i32;
+    pub fn with_back_button(mut self) -> Self {
+        self.button_back = Some(Button::with_icon(Icon::new(theme::ICON_BACK)));
         self
     }
 
@@ -65,22 +67,23 @@ where
         // paint.
         self.fade = Some(theme::BACKLIGHT_NORMAL);
     }
-}
 
-impl<T, U> Component for SwipePage<T, U>
-where
-    T: Paginate,
-    T: Component,
-    U: Component,
-{
-    type Msg = PageMsg<T::Msg, U::Msg>;
-
-    fn place(&mut self, bounds: Rect) -> Rect {
-        let layout = PageLayout::new(bounds, self.button_rows);
+    /// Like `place()` but returns area for loader (content + scrollbar) to be
+    /// used in SwipeHoldPage.
+    fn place_get_content_area(&mut self, bounds: Rect) -> Rect {
+        let mut layout = PageLayout::new(bounds);
         self.pad.place(bounds);
         self.swipe.place(bounds);
-        self.hint.place(layout.hint);
-        self.buttons.place(layout.buttons);
+
+        if self.button_back.is_some() {
+            self.button_back.place(layout.hint_button);
+            self.hint.place(layout.hint_button_hint);
+        } else {
+            self.hint.place(layout.hint);
+        }
+
+        let buttons_area = self.buttons.place(layout.buttons);
+        layout.set_buttons_height(buttons_area.height());
         self.scrollbar.place(layout.scrollbar);
 
         // Layout the content. Try to fit it on a single page first, and reduce the area
@@ -102,6 +105,20 @@ where
         self.scrollbar.set_count_and_active_page(page_count, 0);
         self.setup_swipe();
 
+        layout.content_single_page.union(layout.scrollbar)
+    }
+}
+
+impl<T, U> Component for SwipePage<T, U>
+where
+    T: Paginate,
+    T: Component,
+    U: Component,
+{
+    type Msg = PageMsg<T::Msg, U::Msg>;
+
+    fn place(&mut self, bounds: Rect) -> Rect {
+        self.place_get_content_area(bounds);
         bounds
     }
 
@@ -134,6 +151,9 @@ where
                 return Some(PageMsg::Controls(msg));
             }
         } else {
+            if let Some(ButtonMsg::Clicked) = self.button_back.event(ctx, event) {
+                return Some(PageMsg::GoBack);
+            }
             self.hint.event(ctx, event);
         }
         None
@@ -146,6 +166,7 @@ where
             self.scrollbar.paint();
         }
         if self.scrollbar.has_next_page() {
+            self.button_back.paint();
             self.hint.paint();
         } else {
             self.buttons.paint();
@@ -163,6 +184,7 @@ where
         if !self.scrollbar.has_next_page() {
             self.buttons.bounds(sink);
         } else {
+            self.button_back.bounds(sink);
             self.hint.bounds(sink);
         }
     }
@@ -185,30 +207,41 @@ where
 }
 
 pub struct PageLayout {
+    /// Content when it fits on single page (no scrollbar).
     pub content_single_page: Rect,
+    /// Content when multiple pages.
     pub content: Rect,
+    /// Scroll bar when multiple pages.
     pub scrollbar: Rect,
+    /// Controls displayed on last page.
     pub buttons: Rect,
+    /// Swipe to continue (unless back button enabled).
     pub hint: Rect,
+    /// Optional back button on every page.
+    pub hint_button: Rect,
+    /// Hint area when back button is enabled.
+    pub hint_button_hint: Rect,
 }
 
 impl PageLayout {
-    const SCROLLBAR_WIDTH: i32 = 10;
-    const SCROLLBAR_SPACE: i32 = 10;
-    const HINT_OFF: i32 = 19;
+    const SCROLLBAR_WIDTH: i16 = 15;
+    const SCROLLBAR_SPACE: i16 = 5;
+    const HINT_OFF: i16 = 19;
 
-    pub fn new(area: Rect, button_rows: i32) -> Self {
-        let buttons_height = button_rows * Button::<&str>::HEIGHT
-            + button_rows.saturating_sub(1) * theme::BUTTON_SPACING;
-        let (content, buttons) = area.split_bottom(buttons_height);
+    pub fn new(area: Rect) -> Self {
         let (_, hint) = area.split_bottom(Self::HINT_OFF);
-        let (content, _space) = content.split_bottom(theme::BUTTON_SPACING);
-        let (buttons, _space) = buttons.split_right(theme::CONTENT_BORDER);
-        let (_space, content) = content.split_left(theme::CONTENT_BORDER);
+        let (buttons, _space) = area.split_right(theme::CONTENT_BORDER);
+        let (_space, content) = area.split_left(theme::CONTENT_BORDER);
         let (content_single_page, _space) = content.split_right(theme::CONTENT_BORDER);
         let (content, scrollbar) =
             content.split_right(Self::SCROLLBAR_SPACE + Self::SCROLLBAR_WIDTH);
         let (_space, scrollbar) = scrollbar.split_left(Self::SCROLLBAR_SPACE);
+
+        let (_, one_row_buttons) = area.split_bottom(theme::button_rows(1));
+        let (hint_button, hint_button_hint) = one_row_buttons.split_left(one_row_buttons.height());
+        let vertical_inset = (hint_button_hint.height() - Self::HINT_OFF) / 2;
+        let hint_button_hint =
+            hint_button_hint.inset(Insets::new(vertical_inset, 0, vertical_inset, 0));
 
         Self {
             content_single_page,
@@ -216,13 +249,23 @@ impl PageLayout {
             scrollbar,
             buttons,
             hint,
+            hint_button,
+            hint_button_hint,
         }
+    }
+
+    pub fn set_buttons_height(&mut self, height: i16) {
+        let buttons_inset = Insets::bottom(height + theme::BUTTON_SPACING);
+        self.content_single_page = self.content_single_page.inset(buttons_inset);
+        self.content = self.content.inset(buttons_inset);
+        self.scrollbar = self.scrollbar.inset(buttons_inset);
     }
 }
 
 pub struct SwipeHoldPage<T> {
-    inner: SwipePage<T, CancelHold>,
+    inner: SwipePage<T, FixedHeightBar<CancelHold>>,
     loader: Loader,
+    pad: Pad,
 }
 
 impl<T> SwipeHoldPage<T>
@@ -231,10 +274,29 @@ where
     T: Component,
 {
     pub fn new(content: T, background: Color) -> Self {
-        let buttons = CancelHold::new();
+        let buttons = CancelHold::new(theme::button_confirm());
         Self {
             inner: SwipePage::new(content, buttons, background),
             loader: Loader::new(),
+            pad: Pad::with_background(background),
+        }
+    }
+
+    pub fn with_danger(content: T, background: Color) -> Self {
+        let buttons = CancelHold::new(theme::button_danger());
+        Self {
+            inner: SwipePage::new(content, buttons, background),
+            loader: Loader::new(),
+            pad: Pad::with_background(background),
+        }
+    }
+
+    pub fn without_cancel(content: T, background: Color) -> Self {
+        let buttons = CancelHold::without_cancel();
+        Self {
+            inner: SwipePage::new(content, buttons, background),
+            loader: Loader::new(),
+            pad: Pad::with_background(background),
         }
     }
 }
@@ -247,8 +309,9 @@ where
     type Msg = PageMsg<T::Msg, CancelConfirmMsg>;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        self.inner.place(bounds);
-        self.loader.place(self.inner.pad.area);
+        let content_area = self.inner.place_get_content_area(bounds);
+        self.loader.place(content_area);
+        self.pad.place(content_area);
         bounds
     }
 
@@ -267,23 +330,27 @@ where
             event,
             button_msg,
             &mut self.loader,
-            &mut self.inner.pad,
+            &mut self.pad,
             &mut self.inner.content,
         ) {
             return Some(PageMsg::Controls(CancelConfirmMsg::Confirmed));
+        }
+        if self.inner.pad.will_paint().is_some() {
+            self.inner.buttons.request_complete_repaint(ctx);
         }
         None
     }
 
     fn paint(&mut self) {
+        self.pad.paint();
         self.inner.pad.paint();
         if self.loader.is_animating() {
             self.loader.paint()
         } else {
             self.inner.content.paint();
-        }
-        if self.inner.scrollbar.has_pages() {
-            self.inner.scrollbar.paint();
+            if self.inner.scrollbar.has_pages() {
+                self.inner.scrollbar.paint();
+            }
         }
         if self.inner.scrollbar.has_next_page() {
             self.inner.hint.paint();
@@ -317,10 +384,13 @@ mod tests {
     use crate::{
         trace::Trace,
         ui::{
-            component::{text::paragraphs::Paragraphs, Empty},
+            component::{
+                text::paragraphs::{Paragraph, ParagraphStrType, Paragraphs},
+                Empty,
+            },
             event::TouchEvent,
             geometry::Point,
-            model_tt::{constant, theme},
+            model_tt::{component::Button, constant, theme},
         },
     };
 
@@ -328,13 +398,19 @@ mod tests {
 
     const SCREEN: Rect = constant::screen().inset(theme::borders());
 
+    impl ParagraphStrType for &'static str {
+        fn skip_prefix(&self, chars: usize) -> Self {
+            &self[chars..]
+        }
+    }
+
     fn trace(val: &impl Trace) -> String {
         let mut t = Vec::new();
         val.trace(&mut t);
         String::from_utf8(t).unwrap()
     }
 
-    fn swipe(component: &mut impl Component, points: &[(i32, i32)]) {
+    fn swipe(component: &mut impl Component, points: &[(i16, i16)]) {
         let last = points.len().saturating_sub(1);
         let mut first = true;
         let mut ctx = EventCtx::new();
@@ -363,7 +439,11 @@ mod tests {
 
     #[test]
     fn paragraphs_empty() {
-        let mut page = SwipePage::new(Paragraphs::<&str>::new(), Empty, theme::BG);
+        let mut page = SwipePage::new(
+            Paragraphs::<[Paragraph<&'static str>; 0]>::new([]),
+            Empty,
+            theme::BG,
+        );
         page.place(SCREEN);
 
         let expected =
@@ -379,15 +459,16 @@ mod tests {
     #[test]
     fn paragraphs_single() {
         let mut page = SwipePage::new(
-            Paragraphs::new()
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_NORMAL,
+            Paragraphs::new([
+                Paragraph::new(
+                    &theme::TEXT_NORMAL,
                     "This is the first paragraph and it should fit on the screen entirely.",
-                )
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_BOLD,
+                ),
+                Paragraph::new(
+                    &theme::TEXT_BOLD,
                     "Second, bold, paragraph should also fit on the screen whole I think.",
                 ),
+            ]),
             Empty,
             theme::BG,
         );
@@ -405,18 +486,19 @@ mod tests {
     #[test]
     fn paragraphs_one_long() {
         let mut page = SwipePage::new(
-            Paragraphs::new()
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_BOLD,
+            Paragraphs::new(
+                Paragraph::new(
+                    &theme::TEXT_BOLD,
                     "This is somewhat long paragraph that goes on and on and on and on and on and will definitely not fit on just a single screen. You have to swipe a bit to see all the text it contains I guess. There's just so much letters in it.",
-                ),
-            Empty,
+                )
+            ),
+            theme::button_bar(Button::with_text("NO")),
             theme::BG,
         );
         page.place(SCREEN);
 
-        let expected1 = "<SwipePage active_page:0 page_count:2 content:<Paragraphs This is somewhat long\nparagraph that goes on\nand on and on and on\nand on and will definitely\nnot fit on just a single\nscreen. You have to\nswipe a bit to see all the\ntext it contains I guess....\n> buttons:<Empty > >";
-        let expected2 = "<SwipePage active_page:1 page_count:2 content:<Paragraphs There's just so much\nletters in it.\n> buttons:<Empty > >";
+        let expected1 = "<SwipePage active_page:0 page_count:2 content:<Paragraphs This is somewhat long\nparagraph that goes on\nand on and on and on\nand on and will definitely\nnot fit on just a single\nscreen. You have to\nswipe a bit to see all the\ntext it contains I guess....\n> buttons:<FixedHeightBar inner:<Button text:NO > > >";
+        let expected2 = "<SwipePage active_page:1 page_count:2 content:<Paragraphs There's just so much\nletters in it.\n> buttons:<FixedHeightBar inner:<Button text:NO > > >";
 
         assert_eq!(trace(&page), expected1);
         swipe_down(&mut page);
@@ -432,27 +514,28 @@ mod tests {
     #[test]
     fn paragraphs_three_long() {
         let mut page = SwipePage::new(
-            Paragraphs::new()
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_BOLD,
+            Paragraphs::new([
+                Paragraph::new(
+                    &theme::TEXT_BOLD,
                     "This paragraph is using a bold font. It doesn't need to be all that long.",
-                )
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_MONO,
+                ),
+                Paragraph::new(
+                    &theme::TEXT_MONO,
                     "And this one is using MONO. Monospace is nice for numbers, they have the same width and can be scanned quickly. Even if they span several pages or something.",
-                )
-                .add::<theme::TTDefaultText>(
-                    theme::FONT_BOLD,
+                ),
+                Paragraph::new(
+                    &theme::TEXT_BOLD,
                     "Let's add another one for a good measure. This one should overflow all the way to the third page with a bit of luck.",
                 ),
-            Empty,
+            ]),
+            theme::button_bar(Button::with_text("IDK")),
             theme::BG,
         );
         page.place(SCREEN);
 
-        let expected1 = "<SwipePage active_page:0 page_count:3 content:<Paragraphs This paragraph is using a\nbold font. It doesn't\nneed to be all that long.\nAnd this one is\nusing MONO.\nMonospace is\nnice for...\n> buttons:<Empty > >";
-        let expected2 = "<SwipePage active_page:1 page_count:3 content:<Paragraphs numbers, they\nhave the same\nwidth and can be\nscanned quickly.\nEven if they\nspan several\npages or...\n> buttons:<Empty > >";
-        let expected3 = "<SwipePage active_page:2 page_count:3 content:<Paragraphs something.\nLet's add another one\nfor a good measure. This\none should overflow all\nthe way to the third\npage with a bit of luck.\n> buttons:<Empty > >";
+        let expected1 = "<SwipePage active_page:0 page_count:3 content:<Paragraphs This paragraph is using a\nbold font. It doesn't\nneed to be all that long.\nAnd this one is\nusing MONO. Mono\nspace is nice fo\nr numbers, they\n> buttons:<FixedHeightBar inner:<Button text:IDK > > >";
+        let expected2 = "<SwipePage active_page:1 page_count:3 content:<Paragraphs have the same wi\ndth and can be s\ncanned quickly.\nEven if they spa\nn several pages\nor something.\nLet's add another one...\n> buttons:<FixedHeightBar inner:<Button text:IDK > > >";
+        let expected3 = "<SwipePage active_page:2 page_count:3 content:<Paragraphs for a good measure. This\none should overflow all\nthe way to the third\npage with a bit of luck.\n> buttons:<FixedHeightBar inner:<Button text:IDK > > >";
 
         assert_eq!(trace(&page), expected1);
         swipe_down(&mut page);
@@ -469,5 +552,31 @@ mod tests {
         assert_eq!(trace(&page), expected1);
         swipe_down(&mut page);
         assert_eq!(trace(&page), expected1);
+    }
+
+    #[test]
+    fn paragraphs_hard_break() {
+        let mut page = SwipePage::new(
+            Paragraphs::new([
+                Paragraph::new(&theme::TEXT_NORMAL, "Short one.").break_after(),
+                Paragraph::new(&theme::TEXT_NORMAL, "Short two.").break_after(),
+                Paragraph::new(&theme::TEXT_NORMAL, "Short three.").break_after(),
+            ]),
+            theme::button_bar(Empty),
+            theme::BG,
+        );
+        page.place(SCREEN);
+
+        let expected1 = "<SwipePage active_page:0 page_count:3 content:<Paragraphs Short one.\n> buttons:<FixedHeightBar inner:<Empty > > >";
+        let expected2 = "<SwipePage active_page:1 page_count:3 content:<Paragraphs Short two.\n> buttons:<FixedHeightBar inner:<Empty > > >";
+        let expected3 = "<SwipePage active_page:2 page_count:3 content:<Paragraphs Short three.\n> buttons:<FixedHeightBar inner:<Empty > > >";
+
+        assert_eq!(trace(&page), expected1);
+        swipe_up(&mut page);
+        assert_eq!(trace(&page), expected2);
+        swipe_up(&mut page);
+        assert_eq!(trace(&page), expected3);
+        swipe_up(&mut page);
+        assert_eq!(trace(&page), expected3);
     }
 }

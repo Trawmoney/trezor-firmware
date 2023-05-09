@@ -3,10 +3,10 @@
  }:
 
 let
-  # the last commit from master as of 2022-02-08
+  # the last commit from master as of 2022-08-02
   rustOverlay = import (builtins.fetchTarball {
-    url = "https://github.com/oxalica/rust-overlay/archive/2eae19e246433530998cbf239d5505b7b87bc854.tar.gz";
-    sha256 = "0panx24sqcvx52wza02zsxmpkhg6xld7hklrv7dybc59akqm2ira";
+    url = "https://github.com/oxalica/rust-overlay/archive/b38c1683594aeefa5c3c4dde115401f059146be6.tar.gz";
+    sha256 = "0rk4i42cys2v7k2ir57x5qa8dc37nrs432cdpbr4cddskgvyi8ky";
   });
   # the last successful build of nixpkgs-unstable as of 2022-06-20
   nixpkgs = import (builtins.fetchTarball {
@@ -19,8 +19,8 @@ let
     sha256 = "02s3qkb6kz3ndyx7rfndjbvp4vlwiqc42fxypn3g6jnc0v5jyz95";
   }) { };
   moneroTests = nixpkgs.fetchurl {
-    url = "https://github.com/ph4r05/monero/releases/download/v0.17.3.2-dev-tests-u18.04-03/trezor_tests";
-    sha256 = "3280aeef795baf2fc46687c07ac4131e5a18767ecdd3af83cf17823ebb2d1007";
+    url = "https://github.com/ph4r05/monero/releases/download/v0.18.1.0-dev-tests-u18.04-01/trezor_tests";
+    sha256 = "7a8bab583d5f2f06f092ea297b1417008f20c1c5ca23c74e0eb11660068dead9";
   };
   moneroTestsPatched = nixpkgs.runCommandCC "monero_trezor_tests" {} ''
     cp ${moneroTests} $out
@@ -29,15 +29,15 @@ let
     chmod -w $out
   '';
   # NOTE: don't forget to update Minimum Supported Rust Version in docs/core/build/emulator.md
-  rustProfiles = nixpkgs.rust-bin.stable."1.58.1";
-  rustStable = rustProfiles.minimal.override {
+  rustProfiles = nixpkgs.rust-bin.nightly."2022-08-02";
+  rustNightly = rustProfiles.minimal.override {
     targets = [
       "thumbv7em-none-eabihf" # TT
       "thumbv7m-none-eabi"    # T1
     ];
     # we use rustfmt from nixpkgs because it's built with the nighly flag needed for wrap_comments
     # to use official binary, remove rustfmt from buildInputs and add it to extensions:
-    extensions = [ "clippy" ];
+    extensions = [ "rust-src" "clippy" "rustfmt" ];
   };
   llvmPackages = nixpkgs.llvmPackages_13;
   # see pyright/README.md for update procedure
@@ -88,8 +88,7 @@ stdenvNoCC.mkDerivation ({
     poetry
     protobuf
     pyright
-    rustfmt
-    rustStable
+    rustNightly
     wget
     zlib
     moreutils

@@ -35,6 +35,7 @@ reads the message's header. When the message type is known the first handler is 
 
 """
 
+from micropython import const
 from typing import TYPE_CHECKING
 
 from storage.cache import InvalidSessionError
@@ -87,7 +88,7 @@ if TYPE_CHECKING:
             ...
 
 
-# If set to False protobuf messages marked with "unstable" option are rejected.
+# If set to False protobuf messages marked with "experimental_message" option are rejected.
 experimental_enabled = False
 
 
@@ -132,9 +133,13 @@ class DummyContext:
 
 DUMMY_CONTEXT = DummyContext()
 
-PROTOBUF_BUFFER_SIZE = 8192
+_PROTOBUF_BUFFER_SIZE = const(8192)
 
-WIRE_BUFFER = bytearray(PROTOBUF_BUFFER_SIZE)
+WIRE_BUFFER = bytearray(_PROTOBUF_BUFFER_SIZE)
+
+if __debug__:
+    PROTOBUF_BUFFER_SIZE_DEBUG = 1024
+    WIRE_BUFFER_DEBUG = bytearray(PROTOBUF_BUFFER_SIZE_DEBUG)
 
 
 class Context:
@@ -381,7 +386,12 @@ async def _handle_single_message(
 async def handle_session(
     iface: WireInterface, session_id: int, is_debug_session: bool = False
 ) -> None:
-    ctx = Context(iface, session_id, WIRE_BUFFER)
+    if __debug__ and is_debug_session:
+        ctx_buffer = WIRE_BUFFER_DEBUG
+    else:
+        ctx_buffer = WIRE_BUFFER
+
+    ctx = Context(iface, session_id, ctx_buffer)
     next_msg: codec_v1.Message | None = None
 
     if __debug__ and is_debug_session:

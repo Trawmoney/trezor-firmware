@@ -47,6 +47,9 @@
 #ifdef TREZOR_MODEL_R
 #include "rgb_led.h"
 #endif
+#ifdef TREZOR_MODEL_T
+#include "dma2d.h"
+#endif
 #if defined TREZOR_MODEL_R || defined TREZOR_MODEL_1
 #include "button.h"
 #endif
@@ -56,6 +59,7 @@
 #endif
 #include "rng.h"
 #include "sdcard.h"
+#include "stm32.h"
 #include "supervise.h"
 #include "touch.h"
 #ifdef USE_SECP256K1_ZKP
@@ -83,6 +87,8 @@ int main(void) {
   enable_systemview();
 #endif
 
+  display_reinit();
+
 #if !defined TREZOR_MODEL_1
   parse_boardloader_capabilities();
 
@@ -96,23 +102,31 @@ int main(void) {
   // Init peripherals
   pendsv_init();
 
+#ifdef USE_DMA2D
+  dma2d_init();
+#endif
+
+#if !PRODUCTION
+  // enable BUS fault and USAGE fault handlers
+  SCB->SHCSR |= (SCB_SHCSR_USGFAULTENA_Msk | SCB_SHCSR_BUSFAULTENA_Msk);
+#endif
+
 #if defined TREZOR_MODEL_1
-  display_init();
   button_init();
 #endif
 
 #if defined TREZOR_MODEL_R
   button_init();
-  display_clear();
   rgb_led_init();
 #endif
 
 #if defined TREZOR_MODEL_T
+  set_core_clock(CLOCK_180_MHZ);
   touch_init();
-  // display_init_seq();
   sdcard_init();
-  display_clear();
 #endif
+
+  display_clear();
 
 #if !defined TREZOR_MODEL_1
   // jump to unprivileged mode
@@ -129,7 +143,7 @@ int main(void) {
   // Stack limit should be less than real stack size, so we have a chance
   // to recover from limit hit.
   mp_stack_set_top(&_estack);
-  mp_stack_set_limit((char *)&_estack - (char *)&_heap_end - 1024);
+  mp_stack_set_limit((char *)&_estack - (char *)&_sstack - 1024);
 
 #if MICROPY_ENABLE_PYSTACK
   static mp_obj_t pystack[1024];
@@ -179,8 +193,12 @@ void HardFault_Handler(void) {
   error_shutdown("Internal error", "(HF)", NULL, NULL);
 }
 
-void MemManage_Handler(void) {
+void MemManage_Handler_MM(void) {
   error_shutdown("Internal error", "(MM)", NULL, NULL);
+}
+
+void MemManage_Handler_SO(void) {
+  error_shutdown("Internal error", "(SO)", NULL, NULL);
 }
 
 void BusFault_Handler(void) {
@@ -221,6 +239,7 @@ void SVC_C_Handler(uint32_t *stack) {
         ;
       break;
     case SVC_REBOOT_TO_BOOTLOADER:
+      ensure_compatible_settings();
       mpu_config_bootloader();
       __asm__ volatile("msr control, %0" ::"r"(0x0));
       __asm__ volatile("isb");

@@ -1,26 +1,21 @@
 from typing import TYPE_CHECKING
 
-import storage.device
-from trezor import io, loop, utils, wire
-from trezor.messages import RebootToBootloader, Success
-from trezor.ui.layouts import confirm_action
-
 if TYPE_CHECKING:
+    from trezor.messages import RebootToBootloader
     from typing import NoReturn
+    from trezor.wire import Context
 
-    pass
 
-
-async def reboot_to_bootloader(ctx: wire.Context, msg: RebootToBootloader) -> NoReturn:
-    if not storage.device.get_experimental_features():
-        raise wire.UnexpectedMessage("Experimental features are not enabled")
+async def reboot_to_bootloader(ctx: Context, msg: RebootToBootloader) -> NoReturn:
+    from trezor import io, loop, utils
+    from trezor.messages import Success
+    from trezor.ui.layouts import confirm_action
 
     await confirm_action(
         ctx,
         "reboot",
         "Go to bootloader",
         "Do you want to restart Trezor in bootloader mode?",
-        hold_danger=True,
         verb="Restart",
     )
     await ctx.write(Success(message="Rebooting"))

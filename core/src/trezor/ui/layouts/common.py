@@ -5,11 +5,15 @@ from trezor.enums import ButtonRequestType
 from trezor.messages import ButtonAck, ButtonRequest
 
 if TYPE_CHECKING:
-    from typing import Any, Awaitable
+    from typing import Any, Awaitable, Protocol
 
     LayoutType = Awaitable[Any]
     PropertyType = tuple[str | None, str | bytes | None]
     ExceptionType = BaseException | type[BaseException]
+
+    class ProgressLayout(Protocol):
+        def report(self, value: int, description: str | None = None) -> None:
+            ...
 
 
 async def button_request(
@@ -33,12 +37,7 @@ async def interact(
     br_type: str,
     br_code: ButtonRequestType = ButtonRequestType.Other,
 ) -> Any:
-    if layout.__class__.__name__ == "Paginated":
-        from ..components.tt.scroll import Paginated
-
-        assert isinstance(layout, Paginated)
-        return await layout.interact(ctx, code=br_code)
-    elif hasattr(layout, "page_count") and layout.page_count() > 1:  # type: ignore [Cannot access member "page_count" for type "LayoutType"]
+    if hasattr(layout, "page_count") and layout.page_count() > 1:  # type: ignore [Cannot access member "page_count" for type "LayoutType"]
         await button_request(ctx, br_type, br_code, pages=layout.page_count())  # type: ignore [Cannot access member "page_count" for type "LayoutType"]
         return await ctx.wait(layout)
     else:

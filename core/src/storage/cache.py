@@ -1,5 +1,5 @@
 import gc
-from trezorcrypto import random  # avoid pulling in trezor.crypto
+from micropython import const
 from typing import TYPE_CHECKING
 
 from trezor import utils
@@ -10,26 +10,29 @@ if TYPE_CHECKING:
     T = TypeVar("T")
 
 
-_MAX_SESSIONS_COUNT = 10
-_SESSIONLESS_FLAG = 128
-_SESSION_ID_LENGTH = 32
+_MAX_SESSIONS_COUNT = const(10)
+_SESSIONLESS_FLAG = const(128)
+_SESSION_ID_LENGTH = const(32)
 
 # Traditional cache keys
-APP_COMMON_SEED = 0
-APP_COMMON_AUTHORIZATION_TYPE = 1
-APP_COMMON_AUTHORIZATION_DATA = 2
-APP_COMMON_NONCE = 3
+APP_COMMON_SEED = const(0)
+APP_COMMON_AUTHORIZATION_TYPE = const(1)
+APP_COMMON_AUTHORIZATION_DATA = const(2)
+APP_COMMON_NONCE = const(3)
 if not utils.BITCOIN_ONLY:
-    APP_COMMON_DERIVE_CARDANO = 4
-    APP_CARDANO_ICARUS_SECRET = 5
-    APP_CARDANO_ICARUS_TREZOR_SECRET = 6
-    APP_MONERO_LIVE_REFRESH = 7
+    APP_COMMON_DERIVE_CARDANO = const(4)
+    APP_CARDANO_ICARUS_SECRET = const(5)
+    APP_CARDANO_ICARUS_TREZOR_SECRET = const(6)
+    APP_MONERO_LIVE_REFRESH = const(7)
 
 # Keys that are valid across sessions
-APP_COMMON_SEED_WITHOUT_PASSPHRASE = 0 | _SESSIONLESS_FLAG
-APP_COMMON_SAFETY_CHECKS_TEMPORARY = 1 | _SESSIONLESS_FLAG
-STORAGE_DEVICE_EXPERIMENTAL_FEATURES = 2 | _SESSIONLESS_FLAG
-APP_COMMON_REQUEST_PIN_LAST_UNLOCK = 3 | _SESSIONLESS_FLAG
+APP_COMMON_SEED_WITHOUT_PASSPHRASE = const(0 | _SESSIONLESS_FLAG)
+APP_COMMON_SAFETY_CHECKS_TEMPORARY = const(1 | _SESSIONLESS_FLAG)
+STORAGE_DEVICE_EXPERIMENTAL_FEATURES = const(2 | _SESSIONLESS_FLAG)
+APP_COMMON_REQUEST_PIN_LAST_UNLOCK = const(3 | _SESSIONLESS_FLAG)
+APP_COMMON_BUSY_DEADLINE_MS = const(4 | _SESSIONLESS_FLAG)
+APP_MISC_COSI_NONCE = const(5 | _SESSIONLESS_FLAG)
+APP_MISC_COSI_COMMITMENT = const(6 | _SESSIONLESS_FLAG)
 
 
 # === Homescreen storage ===
@@ -40,6 +43,7 @@ APP_COMMON_REQUEST_PIN_LAST_UNLOCK = 3 | _SESSIONLESS_FLAG
 # is still on. This way we can avoid unnecessary fadeins/fadeouts when a workflow ends.
 HOMESCREEN_ON = object()
 LOCKSCREEN_ON = object()
+BUSYSCREEN_ON = object()
 homescreen_shown: object | None = None
 
 
@@ -113,6 +117,8 @@ class SessionCache(DataCache):
         super().__init__()
 
     def export_session_id(self) -> bytes:
+        from trezorcrypto import random  # avoid pulling in trezor.crypto
+
         # generate a new session id if we don't have it yet
         if not self.session_id:
             self.session_id[:] = random.bytes(_SESSION_ID_LENGTH)
@@ -131,7 +137,10 @@ class SessionlessCache(DataCache):
             64,  # APP_COMMON_SEED_WITHOUT_PASSPHRASE
             1,  # APP_COMMON_SAFETY_CHECKS_TEMPORARY
             1,  # STORAGE_DEVICE_EXPERIMENTAL_FEATURES
-            4,  # APP_COMMON_REQUEST_PIN_LAST_UNLOCK
+            8,  # APP_COMMON_REQUEST_PIN_LAST_UNLOCK
+            8,  # APP_COMMON_BUSY_DEADLINE_MS
+            32,  # APP_MISC_COSI_NONCE
+            32,  # APP_MISC_COSI_COMMITMENT
         )
         super().__init__()
 
@@ -211,10 +220,6 @@ def end_current_session() -> None:
     _active_session_idx = None
 
 
-def is_session_started() -> bool:
-    return _active_session_idx is not None
-
-
 def set(key: int, value: bytes) -> None:
     if key & _SESSIONLESS_FLAG:
         _SESSIONLESS_CACHE.set(key ^ _SESSIONLESS_FLAG, value)
@@ -222,6 +227,23 @@ def set(key: int, value: bytes) -> None:
     if _active_session_idx is None:
         raise InvalidSessionError
     _SESSIONS[_active_session_idx].set(key, value)
+
+
+def set_int(key: int, value: int) -> None:
+    if key & _SESSIONLESS_FLAG:
+        length = _SESSIONLESS_CACHE.fields[key ^ _SESSIONLESS_FLAG]
+    elif _active_session_idx is None:
+        raise InvalidSessionError
+    else:
+        length = _SESSIONS[_active_session_idx].fields[key]
+
+    encoded = value.to_bytes(length, "big")
+
+    # Ensure that the value fits within the length. Micropython's int.to_bytes()
+    # doesn't raise OverflowError.
+    assert int.from_bytes(encoded, "big") == value
+
+    set(key, encoded)
 
 
 if TYPE_CHECKING:
@@ -241,6 +263,14 @@ def get(key: int, default: T | None = None) -> bytes | T | None:  # noqa: F811
     if _active_session_idx is None:
         raise InvalidSessionError
     return _SESSIONS[_active_session_idx].get(key, default)
+
+
+def get_int(key: int, default: T | None = None) -> int | T | None:  # noqa: F811
+    encoded = get(key)
+    if encoded is None:
+        return default
+    else:
+        return int.from_bytes(encoded, "big")
 
 
 def is_set(key: int) -> bool:

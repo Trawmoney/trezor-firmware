@@ -1,10 +1,12 @@
 use crate::{
     time::Duration,
     ui::{
-        component::{Component, ComponentExt, Event, EventCtx, GridPlaced, Map, TimerToken},
-        display::{self, Color, Font},
+        component::{
+            Component, ComponentExt, Event, EventCtx, FixedHeightBar, GridPlaced, Map, TimerToken,
+        },
+        display::{self, toif::Icon, Color, Font},
         event::TouchEvent,
-        geometry::{Insets, Offset, Rect},
+        geometry::{Insets, Offset, Rect, CENTER},
     },
 };
 
@@ -27,12 +29,9 @@ pub struct Button<T> {
 }
 
 impl<T> Button<T> {
-    /// Standard height in pixels.
-    pub const HEIGHT: i32 = 38;
-
     /// Offsets the baseline of the button text either up (negative) or down
     /// (positive).
-    pub const BASELINE_OFFSET: i32 = -3;
+    pub const BASELINE_OFFSET: i16 = -3;
 
     pub fn new(content: ButtonContent<T>) -> Self {
         Self {
@@ -49,8 +48,12 @@ impl<T> Button<T> {
         Self::new(ButtonContent::Text(text))
     }
 
-    pub fn with_icon(image: &'static [u8]) -> Self {
-        Self::new(ButtonContent::Icon(image))
+    pub fn with_icon(icon: Icon) -> Self {
+        Self::new(ButtonContent::Icon(icon))
+    }
+
+    pub fn with_icon_blend(bg: Icon, fg: Icon, fg_offset: Offset) -> Self {
+        Self::new(ButtonContent::IconBlend(bg, fg, fg_offset))
     }
 
     pub fn empty() -> Self {
@@ -142,29 +145,34 @@ impl<T> Button<T> {
     }
 
     pub fn paint_background(&self, style: &ButtonStyle) {
-        if style.border_width > 0 {
-            // Paint the border and a smaller background on top of it.
-            display::rect_fill_rounded(
-                self.area,
-                style.border_color,
-                style.background_color,
-                style.border_radius,
-            );
-            display::rect_fill_rounded(
-                self.area.inset(Insets::uniform(style.border_width)),
-                style.button_color,
-                style.border_color,
-                style.border_radius,
-            );
-        } else {
-            // We do not need to draw an explicit border in this case, just a
-            // bigger background.
-            display::rect_fill_rounded(
-                self.area,
-                style.button_color,
-                style.background_color,
-                style.border_radius,
-            );
+        match &self.content {
+            ButtonContent::IconBlend(_, _, _) => {}
+            _ => {
+                if style.border_width > 0 {
+                    // Paint the border and a smaller background on top of it.
+                    display::rect_fill_rounded(
+                        self.area,
+                        style.border_color,
+                        style.background_color,
+                        style.border_radius,
+                    );
+                    display::rect_fill_rounded(
+                        self.area.inset(Insets::uniform(style.border_width)),
+                        style.button_color,
+                        style.border_color,
+                        style.border_radius,
+                    );
+                } else {
+                    // We do not need to draw an explicit border in this case, just a
+                    // bigger background.
+                    display::rect_fill_rounded(
+                        self.area,
+                        style.button_color,
+                        style.background_color,
+                        style.border_radius,
+                    );
+                }
+            }
         }
     }
 
@@ -190,13 +198,19 @@ impl<T> Button<T> {
                 );
             }
             ButtonContent::Icon(icon) => {
-                display::icon(
+                icon.draw(
                     self.area.center(),
-                    icon,
+                    CENTER,
                     style.text_color,
                     style.button_color,
                 );
             }
+            ButtonContent::IconBlend(bg, fg, offset) => display::icon_over_icon(
+                Some(self.area),
+                (*bg, Offset::zero(), style.button_color),
+                (*fg, *offset, style.text_color),
+                style.background_color,
+            ),
         }
     }
 }
@@ -233,11 +247,6 @@ where
             }
             Event::Touch(TouchEvent::TouchMove(pos)) => {
                 match self.state {
-                    State::Released if self.area.contains(pos) => {
-                        // Touch entered our area, transform to `Pressed` state.
-                        self.set(ctx, State::Pressed);
-                        return Some(ButtonMsg::Pressed);
-                    }
                     State::Pressed if !self.area.contains(pos) => {
                         // Touch is leaving our area, transform to `Released` state.
                         self.set(ctx, State::Released);
@@ -301,6 +310,7 @@ where
             ButtonContent::Empty => {}
             ButtonContent::Text(text) => t.field("text", text),
             ButtonContent::Icon(_) => t.symbol("icon"),
+            ButtonContent::IconBlend(_, _, _) => t.symbol("icon"),
         }
         t.close();
     }
@@ -318,7 +328,8 @@ enum State {
 pub enum ButtonContent<T> {
     Empty,
     Text(T),
-    Icon(&'static [u8]),
+    Icon(Icon),
+    IconBlend(Icon, Icon, Offset),
 }
 
 #[derive(PartialEq, Eq)]
@@ -336,7 +347,7 @@ pub struct ButtonStyle {
     pub background_color: Color,
     pub border_color: Color,
     pub border_radius: u8,
-    pub border_width: i32,
+    pub border_width: i16,
 }
 
 impl<T> Button<T> {
@@ -353,7 +364,7 @@ impl<T> Button<T> {
         T: AsRef<str>,
     {
         let columns = 1 + right_size_factor;
-        (
+        theme::button_bar((
             GridPlaced::new(left)
                 .with_grid(1, columns)
                 .with_spacing(theme::BUTTON_SPACING)
@@ -368,7 +379,7 @@ impl<T> Button<T> {
                 .map(|msg| {
                     (matches!(msg, ButtonMsg::Clicked)).then(|| CancelConfirmMsg::Confirmed)
                 }),
-        )
+        ))
     }
 
     pub fn cancel_confirm_text(
@@ -385,7 +396,7 @@ impl<T> Button<T> {
         let (left, right_size_factor) = if let Some(verb) = left {
             (Button::with_text(verb), 1)
         } else {
-            (Button::with_icon(theme::ICON_CANCEL), 2)
+            (Button::with_icon(Icon::new(theme::ICON_CANCEL)), 2)
         };
         let right = Button::with_text(right).styled(theme::button_confirm());
 
@@ -406,49 +417,115 @@ impl<T> Button<T> {
     {
         let right = Button::with_text(confirm).styled(theme::button_confirm());
         let top = Button::with_text(info);
-        let left = Button::with_icon(theme::ICON_CANCEL);
-        (
+        let left = Button::with_icon(Icon::new(theme::ICON_CANCEL));
+        theme::button_bar_rows(
+            2,
+            (
+                GridPlaced::new(left)
+                    .with_grid(2, 3)
+                    .with_spacing(theme::BUTTON_SPACING)
+                    .with_row_col(1, 0)
+                    .map(|msg| {
+                        (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Cancelled)
+                    }),
+                GridPlaced::new(top)
+                    .with_grid(2, 3)
+                    .with_spacing(theme::BUTTON_SPACING)
+                    .with_from_to((0, 0), (0, 2))
+                    .map(|msg| {
+                        (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Info)
+                    }),
+                GridPlaced::new(right)
+                    .with_grid(2, 3)
+                    .with_spacing(theme::BUTTON_SPACING)
+                    .with_from_to((1, 1), (1, 2))
+                    .map(|msg| {
+                        (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Confirmed)
+                    }),
+            ),
+        )
+    }
+
+    pub fn abort_info_enter() -> CancelInfoConfirm<
+        &'static str,
+        impl Fn(ButtonMsg) -> Option<CancelInfoConfirmMsg>,
+        impl Fn(ButtonMsg) -> Option<CancelInfoConfirmMsg>,
+        impl Fn(ButtonMsg) -> Option<CancelInfoConfirmMsg>,
+    > {
+        let left = Button::with_text("ABORT").styled(theme::button_cancel());
+        let middle = Button::with_text("INFO");
+        let right = Button::with_text("ENTER").styled(theme::button_confirm());
+        theme::button_bar((
             GridPlaced::new(left)
-                .with_grid(2, 3)
+                .with_grid(1, 3)
                 .with_spacing(theme::BUTTON_SPACING)
-                .with_row_col(1, 0)
+                .with_row_col(0, 0)
                 .map(|msg| {
                     (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Cancelled)
                 }),
-            GridPlaced::new(top)
-                .with_grid(2, 3)
+            GridPlaced::new(middle)
+                .with_grid(1, 3)
                 .with_spacing(theme::BUTTON_SPACING)
-                .with_from_to((0, 0), (0, 2))
+                .with_row_col(0, 1)
                 .map(|msg| (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Info)),
             GridPlaced::new(right)
-                .with_grid(2, 3)
+                .with_grid(1, 3)
                 .with_spacing(theme::BUTTON_SPACING)
-                .with_from_to((1, 1), (1, 2))
+                .with_row_col(0, 2)
                 .map(|msg| {
                     (matches!(msg, ButtonMsg::Clicked)).then(|| CancelInfoConfirmMsg::Confirmed)
                 }),
-        )
+        ))
+    }
+
+    pub fn select_word(
+        words: [T; 3],
+    ) -> CancelInfoConfirm<
+        T,
+        impl Fn(ButtonMsg) -> Option<SelectWordMsg>,
+        impl Fn(ButtonMsg) -> Option<SelectWordMsg>,
+        impl Fn(ButtonMsg) -> Option<SelectWordMsg>,
+    >
+    where
+        T: AsRef<str>,
+    {
+        let btn = move |i, word| {
+            GridPlaced::new(Button::with_text(word))
+                .with_grid(3, 1)
+                .with_spacing(theme::BUTTON_SPACING)
+                .with_row_col(i, 0)
+                .map(move |msg| {
+                    (matches!(msg, ButtonMsg::Clicked)).then(|| SelectWordMsg::Selected(i))
+                })
+        };
+
+        let [top, middle, bottom] = words;
+        theme::button_bar_rows(3, (btn(0, top), btn(1, middle), btn(2, bottom)))
     }
 }
 
-type CancelConfirm<T, F0, F1> = (
+type CancelConfirm<T, F0, F1> = FixedHeightBar<(
     Map<GridPlaced<Button<T>>, F0>,
     Map<GridPlaced<Button<T>>, F1>,
-);
+)>;
 
 pub enum CancelConfirmMsg {
     Cancelled,
     Confirmed,
 }
 
-type CancelInfoConfirm<T, F0, F1, F2> = (
+type CancelInfoConfirm<T, F0, F1, F2> = FixedHeightBar<(
     Map<GridPlaced<Button<T>>, F0>,
     Map<GridPlaced<Button<T>>, F1>,
     Map<GridPlaced<Button<T>>, F2>,
-);
+)>;
 
 pub enum CancelInfoConfirmMsg {
     Cancelled,
     Info,
     Confirmed,
+}
+
+pub enum SelectWordMsg {
+    Selected(usize),
 }

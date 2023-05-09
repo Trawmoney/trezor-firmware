@@ -1,6 +1,6 @@
 use crate::ui::{
     component::{Component, ComponentExt, Event, EventCtx, Never, Pad, PageMsg, Paginate},
-    display::{self, Color},
+    display::{self, Color, Font},
     geometry::{Insets, Offset, Point, Rect},
 };
 
@@ -50,7 +50,7 @@ where
     type Msg = PageMsg<T::Msg, bool>;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        let button_height = theme::FONT_BOLD.line_height() + 2;
+        let button_height = Font::BOLD.line_height() + 2;
         let (content_area, button_area) = bounds.split_bottom(button_height);
         let (content_area, scrollbar_area) = content_area.split_right(ScrollBar::WIDTH);
         let content_area = content_area.inset(Insets::top(1));
@@ -134,9 +134,9 @@ pub struct ScrollBar {
 }
 
 impl ScrollBar {
-    pub const WIDTH: i32 = 8;
+    pub const WIDTH: i16 = 8;
     pub const DOT_SIZE: Offset = Offset::new(4, 4);
-    pub const DOT_INTERVAL: i32 = 6;
+    pub const DOT_INTERVAL: i16 = 6;
 
     pub fn vertical() -> Self {
         Self {
@@ -205,7 +205,7 @@ impl Component for ScrollBar {
     }
 
     fn paint(&mut self) {
-        let count = self.page_count as i32;
+        let count = self.page_count as i16;
         let interval = {
             let available_height = self.area.height();
             let naive_height = count * Self::DOT_INTERVAL;

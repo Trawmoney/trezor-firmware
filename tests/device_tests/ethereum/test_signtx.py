@@ -126,11 +126,15 @@ def test_data_streaming(client: Client):
     checked in vectorized function above.
     """
     with client:
+        tt = client.features.model == "T"
         client.set_expected_responses(
             [
                 messages.ButtonRequest(code=messages.ButtonRequestType.SignTx),
                 messages.ButtonRequest(code=messages.ButtonRequestType.SignTx),
                 messages.ButtonRequest(code=messages.ButtonRequestType.SignTx),
+                (tt, messages.ButtonRequest(code=messages.ButtonRequestType.Other)),
+                (tt, messages.ButtonRequest(code=messages.ButtonRequestType.SignTx)),
+                (tt, messages.ButtonRequest(code=messages.ButtonRequestType.SignTx)),
                 message_filters.EthereumTxRequest(
                     data_length=1_024,
                     signature_r=None,
@@ -325,24 +329,32 @@ def test_sanity_checks_eip1559(client: Client):
         )
 
 
-def input_flow_skip(client: Client, cancel=False):
-    yield  # confirm sending
+def input_flow_skip(client: Client, cancel: bool = False):
+    yield  # confirm address
     client.debug.press_yes()
-
+    yield  # confirm amount
+    client.debug.wait_layout()
+    client.debug.press_yes()
     yield  # confirm data
     if cancel:
         client.debug.press_no()
     else:
         client.debug.press_yes()
-        yield
+        yield  # gas price
+        client.debug.press_yes()
+        yield  # maximum fee
+        client.debug.press_yes()
+        yield  # hold to confirm
         client.debug.press_yes()
 
 
-def input_flow_scroll_down(client: Client, cancel=False):
-    yield  # confirm sending
+def input_flow_scroll_down(client: Client, cancel: bool = False):
+    yield  # confirm address
     client.debug.wait_layout()
     client.debug.press_yes()
-
+    yield  # confirm amount
+    client.debug.wait_layout()
+    client.debug.press_yes()
     yield  # confirm data
     client.debug.wait_layout()
     client.debug.click(SHOW_ALL)
@@ -359,15 +371,21 @@ def input_flow_scroll_down(client: Client, cancel=False):
         client.debug.press_no()
     else:
         client.debug.press_yes()
+        yield  # gas price
+        client.debug.press_yes()
+        yield  # maximum fee
+        client.debug.press_yes()
         yield  # hold to confirm
         client.debug.press_yes()
 
 
-def input_flow_go_back(client: Client, cancel=False):
-    br = yield  # confirm sending
+def input_flow_go_back(client: Client, cancel: bool = False):
+    br = yield  # confirm address
     client.debug.wait_layout()
     client.debug.press_yes()
-
+    br = yield  # confirm amount
+    client.debug.wait_layout()
+    client.debug.press_yes()
     br = yield  # confirm data
     client.debug.wait_layout()
     client.debug.click(SHOW_ALL)
@@ -382,6 +400,12 @@ def input_flow_go_back(client: Client, cancel=False):
             if cancel:
                 client.debug.press_no()
             else:
+                client.debug.press_yes()
+                yield  # confirm address
+                client.debug.wait_layout()
+                client.debug.press_yes()
+                yield  # confirm amount
+                client.debug.wait_layout()
                 client.debug.press_yes()
                 yield  # hold to confirm
                 client.debug.wait_layout()

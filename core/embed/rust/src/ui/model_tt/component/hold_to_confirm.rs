@@ -1,13 +1,14 @@
 use crate::{
     time::Instant,
     ui::{
-        component::{Child, Component, ComponentExt, Event, EventCtx, Pad},
-        geometry::{Grid, Rect},
-        model_tt::component::DialogLayout,
+        component::{Child, Component, ComponentExt, Event, EventCtx, FixedHeightBar, Pad},
+        display::toif::Icon,
+        geometry::{Grid, Insets, Rect},
+        util::animation_disabled,
     },
 };
 
-use super::{theme, Button, ButtonMsg, Loader, LoaderMsg};
+use super::{theme, Button, ButtonMsg, ButtonStyleSheet, Loader, LoaderMsg};
 
 pub enum HoldToConfirmMsg<T> {
     Content(T),
@@ -18,7 +19,7 @@ pub enum HoldToConfirmMsg<T> {
 pub struct HoldToConfirm<T> {
     loader: Loader,
     content: Child<T>,
-    buttons: CancelHold,
+    buttons: Child<FixedHeightBar<CancelHold>>,
     pad: Pad,
 }
 
@@ -30,7 +31,7 @@ where
         Self {
             loader: Loader::new(),
             content: Child::new(content),
-            buttons: CancelHold::new(),
+            buttons: Child::new(CancelHold::new(theme::button_confirm())),
             pad: Pad::with_background(theme::BG),
         }
     }
@@ -47,11 +48,14 @@ where
     type Msg = HoldToConfirmMsg<T::Msg>;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        let layout = DialogLayout::middle(bounds);
-        self.pad.place(layout.content);
-        self.loader.place(layout.content);
-        self.content.place(layout.content);
-        self.buttons.place(layout.controls);
+        let controls_area = self.buttons.place(bounds);
+        let content_area = bounds
+            .inset(Insets::bottom(controls_area.height()))
+            .inset(Insets::bottom(theme::BUTTON_SPACING))
+            .inset(Insets::left(theme::CONTENT_BORDER));
+        self.pad.place(content_area);
+        self.loader.place(content_area);
+        self.content.place(content_area);
         bounds
     }
 
@@ -111,8 +115,8 @@ where
 }
 
 pub struct CancelHold {
-    cancel: Button<&'static str>,
-    hold: Button<&'static str>,
+    cancel: Option<Child<Button<&'static str>>>,
+    hold: Child<Button<&'static str>>,
 }
 
 pub enum CancelHoldMsg {
@@ -121,11 +125,22 @@ pub enum CancelHoldMsg {
 }
 
 impl CancelHold {
-    pub fn new() -> Self {
-        Self {
-            cancel: Button::with_icon(theme::ICON_CANCEL),
-            hold: Button::with_text("HOLD TO CONFIRM").styled(theme::button_confirm()),
-        }
+    pub fn new(button_style: ButtonStyleSheet) -> FixedHeightBar<Self> {
+        theme::button_bar(Self {
+            cancel: Some(Button::with_icon(Icon::new(theme::ICON_CANCEL)).into_child()),
+            hold: Button::with_text("HOLD TO CONFIRM")
+                .styled(button_style)
+                .into_child(),
+        })
+    }
+
+    pub fn without_cancel() -> FixedHeightBar<Self> {
+        theme::button_bar(Self {
+            cancel: None,
+            hold: Button::with_text("HOLD TO CONFIRM")
+                .styled(theme::button_confirm())
+                .into_child(),
+        })
     }
 }
 
@@ -133,10 +148,14 @@ impl Component for CancelHold {
     type Msg = CancelHoldMsg;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        let grid = Grid::new(bounds, 1, 4).with_spacing(theme::BUTTON_SPACING);
-        self.cancel.place(grid.row_col(0, 0));
-        self.hold
-            .place(grid.row_col(0, 1).union(grid.row_col(0, 3)));
+        if self.cancel.is_some() {
+            let grid = Grid::new(bounds, 1, 4).with_spacing(theme::BUTTON_SPACING);
+            self.cancel.place(grid.row_col(0, 0));
+            self.hold
+                .place(grid.row_col(0, 1).union(grid.row_col(0, 3)));
+        } else {
+            self.hold.place(bounds);
+        };
         bounds
     }
 
@@ -203,8 +222,7 @@ where
             loader.start_shrinking(ctx, now);
         }
         Some(ButtonMsg::Clicked) => {
-            if loader.is_completely_grown(now) {
-                loader.reset();
+            if loader.is_completely_grown(now) || animation_disabled() {
                 return true;
             } else {
                 loader.start_shrinking(ctx, now);

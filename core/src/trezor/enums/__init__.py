@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         Entropy = 10
         LoadDevice = 13
         ResetDevice = 14
+        SetBusy = 16
         Features = 17
         PinMatrixRequest = 18
         PinMatrixAck = 19
@@ -60,6 +61,8 @@ if TYPE_CHECKING:
         RebootToBootloader = 87
         GetFirmwareHash = 88
         FirmwareHash = 89
+        UnlockPath = 93
+        UnlockedPathRequest = 94
         SetU2FCounter = 63
         GetNextU2FCounter = 80
         NextU2FCounter = 81
@@ -378,7 +381,11 @@ if TYPE_CHECKING:
 
     class CardanoTxAuxiliaryDataSupplementType(IntEnum):
         NONE = 0
-        CATALYST_REGISTRATION_SIGNATURE = 1
+        GOVERNANCE_REGISTRATION_SIGNATURE = 1
+
+    class CardanoGovernanceRegistrationFormat(IntEnum):
+        CIP15 = 0
+        CIP36 = 1
 
     class CardanoTxSigningMode(IntEnum):
         ORDINARY_TRANSACTION = 0
@@ -399,6 +406,10 @@ if TYPE_CHECKING:
         Strict = 0
         PromptAlways = 1
         PromptTemporarily = 2
+
+    class HomescreenFormat(IntEnum):
+        Toif144x144 = 1
+        Jpeg240x240 = 2
 
     class Capability(IntEnum):
         Bitcoin = 1

@@ -1,13 +1,7 @@
 from micropython import const
 from typing import TYPE_CHECKING
 
-from trezor import wire
-from trezor.crypto.hashlib import sha256
-from trezor.utils import HashWriter
-
 from .. import common, writers
-from ..common import BIP32_WALLET_DEPTH, input_is_external
-from .matchcheck import MultisigFingerprintChecker, WalletPathChecker
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -17,6 +11,7 @@ if TYPE_CHECKING:
         TxInput,
         TxOutput,
     )
+    from trezor.utils import HashWriter
     from .sig_hasher import SigHasher
 
     from apps.common.coininfo import CoinInfo
@@ -61,11 +56,22 @@ _MAX_BIP125_RBF_SEQUENCE = const(0xFFFF_FFFD)
 
 class TxInfoBase:
     def __init__(self, signer: Signer, tx: SignTx | PrevTx) -> None:
+        from trezor.crypto.hashlib import sha256
+        from trezor.utils import HashWriter
+        from .matchcheck import (
+            MultisigFingerprintChecker,
+            WalletPathChecker,
+            ScriptTypeChecker,
+        )
+
         # Checksum of multisig inputs, used to validate change-output.
         self.multisig_fingerprint = MultisigFingerprintChecker()
 
         # Common prefix of input paths, used to validate change-output.
         self.wallet_path = WalletPathChecker()
+
+        # Common script type, used to validate change-output.
+        self.script_type = ScriptTypeChecker()
 
         # h_tx_check is used to make sure that the inputs and outputs streamed in
         # different steps are the same every time, e.g. the ones streamed for approval
@@ -89,8 +95,9 @@ class TxInfoBase:
         writers.write_tx_input_check(self.h_tx_check, txi)
         self.min_sequence = min(self.min_sequence, txi.sequence)
 
-        if not input_is_external(txi):
+        if not common.input_is_external(txi):
             self.wallet_path.add_input(txi)
+            self.script_type.add_input(txi)
             self.multisig_fingerprint.add_input(txi)
 
     def add_output(self, txo: TxOutput, script_pubkey: bytes) -> None:
@@ -99,16 +106,26 @@ class TxInfoBase:
 
     def check_input(self, txi: TxInput) -> None:
         self.wallet_path.check_input(txi)
+        self.script_type.check_input(txi)
         self.multisig_fingerprint.check_input(txi)
 
     def output_is_change(self, txo: TxOutput) -> bool:
         if txo.script_type not in common.CHANGE_OUTPUT_SCRIPT_TYPES:
             return False
+
+        # Check the multisig fingerprint only for multisig outputs. This means
+        # that a transfer from a multisig account to a singlesig account is
+        # treated as a change-output as long as all other change-output
+        # conditions are satisfied. This goes a bit against the concept of a
+        # multisig account but the other cosigners will notice that they are
+        # relinquishing control of the funds, so there is no security risk.
         if txo.multisig and not self.multisig_fingerprint.output_matches(txo):
             return False
+
         return (
             self.wallet_path.output_matches(txo)
-            and len(txo.address_n) >= BIP32_WALLET_DEPTH
+            and self.script_type.output_matches(txo)
+            and len(txo.address_n) >= common.BIP32_WALLET_DEPTH
             and txo.address_n[-2] <= _BIP32_CHANGE_CHAIN
             and txo.address_n[-1] <= _BIP32_MAX_LAST_ELEMENT
             and txo.amount > 0
@@ -163,6 +180,8 @@ class OriginalTxInfo(TxInfoBase):
         writers.write_tx_output(self.h_tx, txo, script_pubkey)
 
     async def finalize_tx_hash(self) -> None:
+        from trezor import wire
+
         await self.signer.write_prev_tx_footer(self.h_tx, self.tx, self.orig_hash)
         if self.orig_hash != writers.get_tx_hash(
             self.h_tx, double=self.signer.coin.sign_hash_double, reverse=True

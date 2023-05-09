@@ -87,7 +87,7 @@
         }
     },
     {
-        "name": "Cardano Testnet",
+        "name": "Cardano Preview Testnet",
         "shortcut": "tADA",
         "slip44": 1815,
         "curve": "ed25519",
@@ -111,7 +111,7 @@
             "Github": "https://github.com/tezos/tezos"
         },
         "wallet": {
-            "SimpleStaking": "https://simplestaking.com"
+            "Briskett": "https://briskett.app"
         }
     },
     {

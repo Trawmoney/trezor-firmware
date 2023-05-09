@@ -19,6 +19,19 @@ fn model() -> String {
     }
 }
 
+fn board() -> String {
+    if !is_firmware() {
+        return String::from("board-unix.h");
+    }
+
+    match env::var("TREZOR_BOARD") {
+        Ok(board) => {
+            format!("boards/{}", board)
+        }
+        Err(_) => String::from("boards/trezor_t.h"),
+    }
+}
+
 /// Generates Rust module that exports QSTR constants used in firmware.
 #[cfg(feature = "micropython")]
 fn generate_qstr_bindings() {
@@ -61,8 +74,10 @@ fn prepare_bindings() -> bindgen::Builder {
         "-I../../../crypto",
         "-I../../../storage",
         "-I../../vendor/micropython",
+        "-I../../vendor/micropython/lib/uzlib",
         "-I../extmod/modtrezorui", // for display.h
         format!("-DTREZOR_MODEL_{}", model()).as_str(),
+        format!("-DTREZOR_BOARD=\"{}\"", board()).as_str(),
     ]);
 
     // Pass in correct include paths and defines.
@@ -104,6 +119,7 @@ fn prepare_bindings() -> bindgen::Builder {
             "-I../unix",
             "-I../../build/unix",
             "-I../../vendor/micropython/ports/unix",
+            "-DTREZOR_EMULATOR",
         ]);
     }
 
@@ -152,6 +168,9 @@ fn generate_micropython_bindings() {
         .allowlist_var("MP_BUFFER_WRITE")
         .allowlist_var("MP_BUFFER_RW")
         .allowlist_var("mp_type_str")
+        .allowlist_var("mp_type_bytes")
+        .allowlist_var("mp_type_bytearray")
+        .allowlist_var("mp_type_memoryview")
         // dict
         .allowlist_type("mp_obj_dict_t")
         .allowlist_function("mp_obj_new_dict")
@@ -159,6 +178,7 @@ fn generate_micropython_bindings() {
         .allowlist_var("mp_type_dict")
         // fun
         .allowlist_type("mp_obj_fun_builtin_fixed_t")
+        .allowlist_var("mp_type_fun_builtin_0")
         .allowlist_var("mp_type_fun_builtin_1")
         .allowlist_var("mp_type_fun_builtin_2")
         .allowlist_var("mp_type_fun_builtin_3")
@@ -174,6 +194,7 @@ fn generate_micropython_bindings() {
         .allowlist_type("mp_obj_list_t")
         .allowlist_function("mp_obj_new_list")
         .allowlist_function("mp_obj_list_append")
+        .allowlist_function("mp_obj_list_get")
         .allowlist_function("mp_obj_list_set_len")
         .allowlist_var("mp_type_list")
         // map
@@ -188,6 +209,7 @@ fn generate_micropython_bindings() {
         .allowlist_function("mp_obj_new_exception_args")
         .allowlist_function("trezor_obj_call_protected")
         .allowlist_var("mp_type_AttributeError")
+        .allowlist_var("mp_type_IndexError")
         .allowlist_var("mp_type_KeyError")
         .allowlist_var("mp_type_MemoryError")
         .allowlist_var("mp_type_OverflowError")
@@ -226,11 +248,15 @@ fn generate_trezorhal_bindings() {
 
     let bindings = prepare_bindings()
         .header("trezorhal.h")
+        // common
+        .allowlist_var("HW_ENTROPY_DATA")
         // secbool
         .allowlist_type("secbool")
         .must_use_type("secbool")
         .allowlist_var("sectrue")
         .allowlist_var("secfalse")
+        // flash
+        .allowlist_function("flash_init")
         // storage
         .allowlist_var("EXTERNAL_SALT_SIZE")
         .allowlist_var("FLAG_PUBLIC")
@@ -245,6 +271,7 @@ fn generate_trezorhal_bindings() {
         .allowlist_function("storage_has_pin")
         .allowlist_function("storage_get_pin_rem")
         .allowlist_function("storage_change_pin")
+        .allowlist_function("storage_ensure_not_wipe_code")
         .allowlist_function("storage_has")
         .allowlist_function("storage_get")
         .allowlist_function("storage_set")
@@ -253,22 +280,32 @@ fn generate_trezorhal_bindings() {
         .allowlist_function("storage_next_counter")
         // display
         .allowlist_function("display_init")
+        .allowlist_function("display_offset")
         .allowlist_function("display_refresh")
         .allowlist_function("display_backlight")
         .allowlist_function("display_text")
+        .allowlist_function("display_text_render_buffer")
         .allowlist_function("display_text_width")
-        .allowlist_function("display_text_height")
         .allowlist_function("display_bar")
         .allowlist_function("display_bar_radius")
-        .allowlist_function("display_icon")
+        .allowlist_function("display_bar_radius_buffer")
         .allowlist_function("display_image")
-        .allowlist_function("display_toif_info")
         .allowlist_function("display_loader")
         .allowlist_function("display_pixeldata")
         .allowlist_function("display_pixeldata_dirty")
         .allowlist_function("display_set_window")
+        .allowlist_function("display_sync")
         .allowlist_var("DISPLAY_CMD_ADDRESS")
         .allowlist_var("DISPLAY_DATA_ADDRESS")
+        .allowlist_type("toif_format_t")
+        // fonts
+        .allowlist_function("font_height")
+        .allowlist_function("font_max_height")
+        .allowlist_function("font_baseline")
+        .allowlist_function("font_get_glyph")
+        // uzlib
+        .allowlist_function("uzlib_uncompress_init")
+        .allowlist_function("uzlib_uncompress")
         // bip39
         .allowlist_function("mnemonic_word_completion_mask")
         .allowlist_var("BIP39_WORDLIST_ENGLISH")
@@ -282,8 +319,25 @@ fn generate_trezorhal_bindings() {
         .allowlist_function("rgb_led_set_color")
         // time
         .allowlist_function("hal_delay")
-        .allowlist_function("hal_ticks_ms");
-
+        .allowlist_function("hal_ticks_ms")
+        // dma2d
+        .allowlist_function("dma2d_setup_4bpp")
+        .allowlist_function("dma2d_setup_4bpp_over_4bpp")
+        .allowlist_function("dma2d_setup_4bpp_over_16bpp")
+        .allowlist_function("dma2d_start")
+        .allowlist_function("dma2d_start_blend")
+        .allowlist_function("dma2d_wait_for_transfer")
+        //buffers
+        .allowlist_function("buffers_get_line_buffer_16bpp")
+        .allowlist_function("buffers_get_line_buffer_4bpp")
+        .allowlist_function("buffers_get_text_buffer")
+        .allowlist_function("buffers_get_jpeg_buffer")
+        .allowlist_function("buffers_get_jpeg_work_buffer")
+        .allowlist_function("buffers_get_blurring_buffer")
+        .allowlist_var("text_buffer_height")
+        .allowlist_var("buffer_width")
+        //usb
+        .allowlist_function("usb_configured");
     // Write the bindings to a file in the OUR_DIR.
     bindings
         .generate()

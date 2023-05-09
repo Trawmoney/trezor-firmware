@@ -25,6 +25,7 @@
 #include "display.h"
 #include "flash.h"
 #include "rand.h"
+#include "stm32.h"
 #include "supervise.h"
 
 #include "stm32f4xx_ll_utils.h"
@@ -183,4 +184,16 @@ void collect_hw_entropy(void) {
   ensure(flash_otp_read(FLASH_OTP_BLOCK_RANDOMNESS, 0, HW_ENTROPY_DATA + 12,
                         FLASH_OTP_BLOCK_SIZE),
          NULL);
+}
+
+// this function resets settings changed in one layer (bootloader/firmware),
+// which might be incompatible with the other layers older versions,
+// where this setting might be unknown
+void ensure_compatible_settings(void) {
+#ifdef TREZOR_MODEL_T
+  display_set_big_endian();
+  display_orientation(0);
+  set_core_clock(CLOCK_168_MHZ);
+  display_set_slow_pwm();
+#endif
 }

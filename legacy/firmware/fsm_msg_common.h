@@ -27,7 +27,8 @@ bool get_features(Features *resp) {
 #else
   const image_header *hdr =
       (const image_header *)FLASH_PTR(FLASH_FWHEADER_START);
-  if (SIG_OK == signatures_new_ok(hdr, NULL)) {
+  // allow both v2 and v3 signatures
+  if (SIG_OK == signatures_match(hdr, NULL)) {
     strlcpy(resp->fw_vendor, "SatoshiLabs", sizeof(resp->fw_vendor));
   } else {
     strlcpy(resp->fw_vendor, "UNSAFE, DO NOT USE!", sizeof(resp->fw_vendor));
@@ -74,6 +75,8 @@ bool get_features(Features *resp) {
   strlcpy(resp->model, "1", sizeof(resp->model));
   resp->has_safety_checks = true;
   resp->safety_checks = config_getSafetyCheckLevel();
+  resp->has_busy = true;
+  resp->busy = (system_millis_busy_deadline > timer_ms());
   if (session_isUnlocked()) {
     resp->has_wipe_code_protection = true;
     resp->wipe_code_protection = config_hasWipeCode();
@@ -574,4 +577,15 @@ void fsm_msgGetFirmwareHash(const GetFirmwareHash *msg) {
   resp->hash.size = sizeof(resp->hash.bytes);
   msg_write(MessageType_MessageType_FirmwareHash, resp);
   layoutHome();
+}
+
+void fsm_msgSetBusy(const SetBusy *msg) {
+  if (msg->has_expiry_ms) {
+    system_millis_busy_deadline = timer_ms() + msg->expiry_ms;
+  } else {
+    system_millis_busy_deadline = 0;
+  }
+  fsm_sendSuccess(NULL);
+  layoutHome();
+  return;
 }

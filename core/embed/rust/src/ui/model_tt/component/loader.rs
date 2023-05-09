@@ -3,9 +3,10 @@ use crate::{
     ui::{
         animation::Animation,
         component::{Component, Event, EventCtx},
-        display::{self, Color},
+        display::{self, toif::Icon, Color},
         geometry::{Offset, Rect},
         model_tt::constant,
+        util::animation_disabled,
     },
 };
 
@@ -23,7 +24,7 @@ enum State {
 }
 
 pub struct Loader {
-    offset_y: i32,
+    offset_y: i16,
     state: State,
     growing_duration: Duration,
     shrinking_duration: Duration,
@@ -41,6 +42,16 @@ impl Loader {
             shrinking_duration: Duration::from_millis(500),
             styles: theme::loader_default(),
         }
+    }
+
+    pub fn with_durations(
+        mut self,
+        growing_duration: Duration,
+        shrinking_duration: Duration,
+    ) -> Self {
+        self.growing_duration = growing_duration;
+        self.shrinking_duration = shrinking_duration;
+        self
     }
 
     pub fn start_growing(&mut self, ctx: &mut EventCtx, now: Instant) {
@@ -118,8 +129,10 @@ impl Component for Loader {
     fn place(&mut self, bounds: Rect) -> Rect {
         // Current loader API only takes Y-offset relative to screen center, which we
         // compute from the bounds center point.
+        // NOTE: SwipeHoldPage relies on Loader being X-centered regardless of bounds.
+        // If this changes then SwipeHoldPage needs to be changed too.
         let screen_center = constant::screen().center();
-        self.offset_y = screen_center.y - bounds.center().y;
+        self.offset_y = bounds.center().y - screen_center.y;
         Rect::from_center_and_size(screen_center + Offset::y(self.offset_y), Self::SIZE)
     }
 
@@ -129,7 +142,9 @@ impl Component for Loader {
         if let Event::Timer(EventCtx::ANIM_FRAME_TIMER) = event {
             if self.is_animating() {
                 // We have something to paint, so request to be painted in the next pass.
-                ctx.request_paint();
+                if !animation_disabled() {
+                    ctx.request_paint();
+                }
 
                 if self.is_completely_grown(now) {
                     return Some(LoaderMsg::GrownCompletely);
@@ -158,6 +173,7 @@ impl Component for Loader {
             } else {
                 self.styles.active
             };
+
             display::loader(
                 progress,
                 self.offset_y,
@@ -175,7 +191,7 @@ pub struct LoaderStyleSheet {
 }
 
 pub struct LoaderStyle {
-    pub icon: Option<(&'static [u8], Color)>,
+    pub icon: Option<(Icon, Color)>,
     pub loader_color: Color,
     pub background_color: Color,
 }

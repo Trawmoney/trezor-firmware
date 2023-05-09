@@ -54,13 +54,13 @@ extend google.protobuf.EnumOptions {
 
 /** Options for tagging message types */
 extend google.protobuf.MessageOptions {
-    optional bool unstable = 52001;   // indicate that a message definition might change at any time
+    optional bool experimental_message = 52001;   // indicate that a message is intended for development and beta testing only and its definition may change at any time
     optional uint32 wire_type = 52002;   // override wire type specified in the MessageType enum
 }
 
 /** Options for tagging field types */
 extend google.protobuf.FieldOptions {
-    optional bool experimental = 53001;   // indicate that a field is intended for development and beta testing only
+    optional bool experimental_field = 53001;   // indicate that a field is intended for development and beta testing only
 }
 
 /** Options for tagging files with protobuf definitions */
@@ -87,6 +87,7 @@ enum MessageType {
     MessageType_Entropy = 10 [(bitcoin_only) = true, (wire_out) = true];
     MessageType_LoadDevice = 13 [(bitcoin_only) = true, (wire_in) = true];
     MessageType_ResetDevice = 14 [(bitcoin_only) = true, (wire_in) = true];
+    MessageType_SetBusy = 16 [(bitcoin_only) = true, (wire_in) = true];
     MessageType_Features = 17 [(bitcoin_only) = true, (wire_out) = true];
     MessageType_PinMatrixRequest = 18 [(bitcoin_only) = true, (wire_out) = true];
     MessageType_PinMatrixAck = 19 [(bitcoin_only) = true, (wire_in) = true, (wire_tiny) = true, (wire_no_fsm) = true];
@@ -117,6 +118,8 @@ enum MessageType {
     MessageType_GetFirmwareHash = 88 [(bitcoin_only) = true, (wire_in) = true];
     MessageType_FirmwareHash = 89 [(bitcoin_only) = true, (wire_out) = true];
     reserved 90 to 92;
+    MessageType_UnlockPath = 93 [(bitcoin_only) = true, (wire_in) = true];
+    MessageType_UnlockedPathRequest = 94 [(bitcoin_only) = true, (wire_out) = true];
 
     MessageType_SetU2FCounter = 63 [(wire_in) = true];
     MessageType_GetNextU2FCounter = 80 [(wire_in) = true];

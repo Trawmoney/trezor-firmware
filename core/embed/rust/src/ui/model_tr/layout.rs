@@ -7,12 +7,13 @@ use crate::{
         component::{
             base::Component,
             paginated::{PageMsg, Paginate},
-            text::paragraphs::Paragraphs,
+            text::paragraphs::{Paragraph, Paragraphs},
             FormattedText,
         },
         layout::{
             obj::{ComponentMsgObj, LayoutObj},
             result::{CANCELLED, CONFIRMED},
+            util::upy_disable_animation,
         },
     },
 };
@@ -31,6 +32,7 @@ where
             PageMsg::Content(_) => Err(Error::TypeError),
             PageMsg::Controls(true) => Ok(CONFIRMED.as_obj()),
             PageMsg::Controls(false) => Ok(CANCELLED.as_obj()),
+            PageMsg::GoBack => unreachable!(),
         }
     }
 }
@@ -72,7 +74,7 @@ extern "C" fn new_confirm_action(n_args: usize, args: *const Obj, kwargs: *mut M
         let obj = LayoutObj::new(Frame::new(
             title,
             ButtonPage::new(
-                FormattedText::new::<theme::TRDefaultText>(format)
+                FormattedText::new(theme::TEXT_NORMAL, theme::FORMATTED, format)
                     .with("action", action.unwrap_or_default())
                     .with("description", description.unwrap_or_default()),
                 theme::BG,
@@ -93,12 +95,10 @@ extern "C" fn new_confirm_text(n_args: usize, args: *const Obj, kwargs: *mut Map
         let obj = LayoutObj::new(Frame::new(
             title,
             ButtonPage::new(
-                Paragraphs::new()
-                    .add::<theme::TRDefaultText>(
-                        theme::FONT_NORMAL,
-                        description.unwrap_or_default(),
-                    )
-                    .add::<theme::TRDefaultText>(theme::FONT_BOLD, data),
+                Paragraphs::new([
+                    Paragraph::new(&theme::TEXT_NORMAL, description.unwrap_or_default()),
+                    Paragraph::new(&theme::TEXT_BOLD, data),
+                ]),
                 theme::BG,
             ),
         ))?;
@@ -117,6 +117,10 @@ pub static mp_module_trezorui2: Module = obj_module! {
     /// CANCELLED: object
     Qstr::MP_QSTR_CANCELLED => CANCELLED.as_obj(),
 
+    /// def disable_animation(disable: bool) -> None:
+    ///     """Disable animations, debug builds only."""
+    Qstr::MP_QSTR_disable_animation => obj_fn_1!(upy_disable_animation).as_obj(),
+
     /// def confirm_action(
     ///     *,
     ///     title: str,
@@ -124,7 +128,8 @@ pub static mp_module_trezorui2: Module = obj_module! {
     ///     description: str | None = None,
     ///     verb: str | None = None,
     ///     verb_cancel: str | None = None,
-    ///     hold: bool | None = None,
+    ///     hold: bool = False,
+    ///     hold_danger: bool = False,  # unused on TR
     ///     reverse: bool = False,
     /// ) -> object:
     ///     """Confirm action."""
@@ -178,7 +183,9 @@ mod tests {
     #[test]
     fn trace_example_layout() {
         let mut layout = Dialog::new(
-            FormattedText::new::<theme::TRDefaultText>(
+            FormattedText::new(
+                theme::TEXT_NORMAL,
+                theme::FORMATTED,
                 "Testing text layout, with some text, and some more text. And {param}",
             )
             .with("param", "parameters!"),
@@ -208,7 +215,9 @@ arameters! > left:<Button text:Left > right:<Button text:Right > >"#
         let mut layout = Frame::new(
             "Please confirm",
             Dialog::new(
-                FormattedText::new::<theme::TRDefaultText>(
+                FormattedText::new(
+                    theme::TEXT_NORMAL,
+                    theme::FORMATTED,
                     "Testing text layout, with some text, and some more text. And {param}",
                 )
                 .with("param", "parameters!"),

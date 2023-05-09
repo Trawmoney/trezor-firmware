@@ -276,8 +276,6 @@ void fsm_msgCosiCommit(const CosiCommit *msg) {
     cosi_nonce_is_set = true;
   }
 
-  resp->has_commitment = true;
-  resp->has_pubkey = true;
   resp->commitment.size = 32;
   resp->pubkey.size = 32;
 
@@ -293,11 +291,9 @@ void fsm_msgCosiSign(const CosiSign *msg) {
 
   CHECK_INITIALIZED
 
-  CHECK_PARAM(msg->has_data, _("No data provided"));
-  CHECK_PARAM(msg->has_global_commitment && msg->global_commitment.size == 32,
+  CHECK_PARAM(msg->global_commitment.size == 32,
               _("Invalid global commitment"));
-  CHECK_PARAM(msg->has_global_pubkey && msg->global_pubkey.size == 32,
-              _("Invalid global pubkey"));
+  CHECK_PARAM(msg->global_pubkey.size == 32, _("Invalid global pubkey"));
 
   if (!cosi_nonce_is_set) {
     fsm_sendFailure(FailureType_Failure_ProcessError, _("CoSi nonce not set"));
@@ -334,6 +330,11 @@ void fsm_msgCosiSign(const CosiSign *msg) {
   } else {
     fsm_sendFailure(FailureType_Failure_FirmwareError, NULL);
   }
-  memzero(cosi_nonce, sizeof(cosi_nonce));
+  fsm_clearCosiNonce();
   layoutHome();
+}
+
+void fsm_clearCosiNonce(void) {
+  cosi_nonce_is_set = false;
+  memzero(cosi_nonce, sizeof(cosi_nonce));
 }

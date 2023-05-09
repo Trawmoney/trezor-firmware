@@ -1,11 +1,16 @@
-use core::ops::Deref;
-
 use crate::ui::{
-    component::{Child, Component, Event, EventCtx, Image, Label, Never},
-    geometry::{Grid, Insets, Rect},
+    component::{
+        image::BlendedImage,
+        text::paragraphs::{
+            Paragraph, ParagraphSource, ParagraphStrType, ParagraphVecShort, Paragraphs, VecExt,
+        },
+        Child, Component, Event, EventCtx, Never,
+    },
+    display::toif::Icon,
+    geometry::{Insets, LinearPlacement, Rect},
 };
 
-use super::{theme, Button};
+use super::theme;
 
 pub enum DialogMsg<T, U> {
     Content(T),
@@ -42,9 +47,12 @@ where
     type Msg = DialogMsg<T::Msg, U::Msg>;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        let layout = DialogLayout::middle(bounds);
-        self.content.place(layout.content);
-        self.controls.place(layout.controls);
+        let controls_area = self.controls.place(bounds);
+        let content_area = bounds
+            .inset(Insets::bottom(controls_area.height()))
+            .inset(Insets::bottom(theme::BUTTON_SPACING))
+            .inset(Insets::left(theme::CONTENT_BORDER));
+        self.content.place(content_area);
         bounds
     }
 
@@ -66,24 +74,6 @@ where
     }
 }
 
-pub struct DialogLayout {
-    pub content: Rect,
-    pub controls: Rect,
-}
-
-impl DialogLayout {
-    pub fn middle(area: Rect) -> Self {
-        let grid = Grid::new(area, 5, 1);
-        Self {
-            content: Rect::new(
-                grid.row_col(0, 0).top_left(),
-                grid.row_col(3, 0).bottom_right(),
-            ),
-            controls: grid.row_col(4, 0),
-        }
-    }
-}
-
 #[cfg(feature = "ui_debug")]
 impl<T, U> crate::trace::Trace for Dialog<T, U>
 where
@@ -99,75 +89,105 @@ where
 }
 
 pub struct IconDialog<T, U> {
-    image: Child<Image>,
-    title: Label<T>,
-    description: Option<Label<T>>,
+    image: Child<BlendedImage>,
+    paragraphs: Paragraphs<ParagraphVecShort<T>>,
     controls: Child<U>,
 }
 
 impl<T, U> IconDialog<T, U>
 where
-    T: Deref<Target = str>,
+    T: ParagraphStrType,
     U: Component,
 {
-    pub fn new(icon: &'static [u8], title: T, controls: U) -> Self {
+    pub fn new(icon: BlendedImage, title: T, controls: U) -> Self {
         Self {
-            image: Child::new(Image::new(icon)),
-            title: Label::centered(title, theme::label_warning()),
-            description: None,
+            image: Child::new(icon),
+            paragraphs: Paragraphs::new(ParagraphVecShort::from_iter([Paragraph::new(
+                &theme::TEXT_DEMIBOLD,
+                title,
+            )
+            .centered()]))
+            .with_placement(
+                LinearPlacement::vertical()
+                    .align_at_center()
+                    .with_spacing(Self::VALUE_SPACE),
+            ),
             controls: Child::new(controls),
         }
     }
 
     pub fn with_description(mut self, description: T) -> Self {
-        self.description = Some(Label::centered(description, theme::label_warning_value()));
+        if !description.as_ref().is_empty() {
+            self.paragraphs
+                .inner_mut()
+                .add(Paragraph::new(&theme::TEXT_NORMAL_OFF_WHITE, description).centered());
+        }
         self
     }
 
-    pub const ICON_AREA_HEIGHT: i32 = 64;
-    pub const DESCRIPTION_SPACE: i32 = 13;
-    pub const VALUE_SPACE: i32 = 9;
+    pub fn new_shares(lines: [T; 4], controls: U) -> Self {
+        let [l0, l1, l2, l3] = lines;
+        Self {
+            image: Child::new(BlendedImage::new(
+                Icon::new(theme::IMAGE_BG_CIRCLE),
+                Icon::new(theme::IMAGE_FG_SUCCESS),
+                theme::SUCCESS_COLOR,
+                theme::FG,
+                theme::BG,
+            )),
+            paragraphs: ParagraphVecShort::from_iter([
+                Paragraph::new(&theme::TEXT_NORMAL_OFF_WHITE, l0).centered(),
+                Paragraph::new(&theme::TEXT_DEMIBOLD, l1).centered(),
+                Paragraph::new(&theme::TEXT_NORMAL_OFF_WHITE, l2).centered(),
+                Paragraph::new(&theme::TEXT_DEMIBOLD, l3).centered(),
+            ])
+            .into_paragraphs()
+            .with_placement(LinearPlacement::vertical().align_at_center()),
+            controls: Child::new(controls),
+        }
+    }
+
+    pub const ICON_AREA_PADDING: i16 = 2;
+    pub const ICON_AREA_HEIGHT: i16 = 60;
+    pub const VALUE_SPACE: i16 = 5;
 }
 
 impl<T, U> Component for IconDialog<T, U>
 where
-    T: Deref<Target = str>,
+    T: ParagraphStrType,
     U: Component,
 {
     type Msg = DialogMsg<Never, U::Msg>;
 
     fn place(&mut self, bounds: Rect) -> Rect {
-        let bounds = bounds.inset(theme::borders());
-        let (content, buttons) = bounds.split_bottom(Button::<&str>::HEIGHT);
-        let (image, content) = content.split_top(Self::ICON_AREA_HEIGHT);
-        let content = content.inset(Insets::top(Self::DESCRIPTION_SPACE));
-        let (title, content) = content.split_top(self.title.size().y);
-        let content = content.inset(Insets::top(Self::VALUE_SPACE));
+        let bounds = bounds
+            .inset(theme::borders())
+            .inset(Insets::top(Self::ICON_AREA_PADDING));
 
-        self.image.place(image);
-        self.title.place(title);
-        self.description.place(content);
-        self.controls.place(buttons);
+        let controls_area = self.controls.place(bounds);
+        let content_area = bounds.inset(Insets::bottom(controls_area.height()));
+
+        let (image_area, content_area) = content_area.split_top(Self::ICON_AREA_HEIGHT);
+
+        self.image.place(image_area);
+        self.paragraphs.place(content_area);
         bounds
     }
 
     fn event(&mut self, ctx: &mut EventCtx, event: Event) -> Option<Self::Msg> {
-        self.title.event(ctx, event);
-        self.description.event(ctx, event);
+        self.paragraphs.event(ctx, event);
         self.controls.event(ctx, event).map(Self::Msg::Controls)
     }
 
     fn paint(&mut self) {
         self.image.paint();
-        self.title.paint();
-        self.description.paint();
+        self.paragraphs.paint();
         self.controls.paint();
     }
 
     fn bounds(&self, sink: &mut dyn FnMut(Rect)) {
         self.image.bounds(sink);
-        self.title.bounds(sink);
-        self.description.bounds(sink);
+        self.paragraphs.bounds(sink);
         self.controls.bounds(sink);
     }
 }
@@ -175,15 +195,13 @@ where
 #[cfg(feature = "ui_debug")]
 impl<T, U> crate::trace::Trace for IconDialog<T, U>
 where
-    T: Deref<Target = str>,
+    T: ParagraphStrType,
     U: crate::trace::Trace,
 {
     fn trace(&self, t: &mut dyn crate::trace::Tracer) {
         t.open("IconDialog");
-        t.field("title", &self.title);
-        if let Some(ref description) = self.description {
-            t.field("description", description);
-        }
+        t.field("content", &self.paragraphs);
+        t.field("image", &self.image);
         t.field("controls", &self.controls);
         t.close();
     }

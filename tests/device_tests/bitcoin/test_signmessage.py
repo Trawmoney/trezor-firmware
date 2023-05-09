@@ -18,17 +18,23 @@
 import pytest
 
 from trezorlib import btc, messages
-from trezorlib.debuglink import TrezorClientDebugLink as Client, message_filters
+from trezorlib.debuglink import (
+    LayoutContent,
+    TrezorClientDebugLink as Client,
+    message_filters,
+    multipage_content,
+)
 from trezorlib.tools import parse_path
 
 S = messages.InputScriptType
 
 
-def case(id, *args, altcoin=False):
+def case(id, *args, altcoin=False, skip_t1=False):
+    marks = []
     if altcoin:
-        marks = pytest.mark.altcoin
-    else:
-        marks = ()
+        marks.append(pytest.mark.altcoin)
+    if skip_t1:
+        marks.append(pytest.mark.skip_t1)
     return pytest.param(*args, id=id, marks=marks)
 
 
@@ -149,6 +155,18 @@ VECTORS = (  # case name, coin_name, path, script_type, address, message, signat
         "1GWFxtwWmNVqotUPXLcKVL2mUKpshuJYo",
         MESSAGE_NFC,
         NFKD_NFC_SIGNATURE,
+    ),
+    # ==== T1 FW signing ====
+    case(
+        "t1 firmware path",
+        "Bitcoin",
+        "m/10026'/826421588'/2'/0'",
+        S.SPENDADDRESS,
+        False,
+        "1FoHjQT6bAEu2FQGzTgqj4PBneoiCAk4ZN",
+        b"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "1f40ae58dd68480a2f39eecf4decfe79ceacde3f865502db67c083b8465b33535c0750d5377b7ac62e534f71c922cd029f659761f8ac99e859df36322c5b320eff",
+        skip_t1=True,
     ),
     # ==== Testnet script types ====
     case(
@@ -282,38 +300,29 @@ MESSAGE_LENGTHS = (
 
 @pytest.mark.skip_t1
 @pytest.mark.parametrize("message", MESSAGE_LENGTHS)
-def test_signmessage_pagination(client: Client, message):
+def test_signmessage_pagination(client: Client, message: str):
     message_read = ""
 
     def input_flow():
         # collect screen contents into `message_read`.
-        # Join lines that are separated by a single "-" string, space-separate lines otherwise.
+        # Using a helper debuglink function to assemble the final text.
         nonlocal message_read
+        layouts: list[LayoutContent] = []
 
         # confirm address
         br = yield
-        layout = client.debug.wait_layout()
+        client.debug.wait_layout()
         client.debug.press_yes()
 
-        # start assuming there was a word break; this avoids prepending space at start
-        word_break = True
         br = yield
         for i in range(br.pages):
             layout = client.debug.wait_layout()
-            for line in layout.lines[1:]:
-                if line == "-":
-                    # next line will be attached without space
-                    word_break = True
-                elif word_break:
-                    # attach without space, reset word_break
-                    message_read += line
-                    word_break = False
-                else:
-                    # attach with space
-                    message_read += " " + line
+            layouts.append(layout)
 
             if i < br.pages - 1:
                 client.debug.swipe_up()
+
+        message_read = multipage_content(layouts)
 
         client.debug.press_yes()
 
@@ -326,7 +335,13 @@ def test_signmessage_pagination(client: Client, message):
             n=parse_path("m/44h/0h/0h/0/0"),
             message=message,
         )
-    assert "Confirm message:   " + message.replace("\n", " ") == message_read
+
+    # We cannot differentiate between a newline and space in the message read from Trezor.
+    expected_message = (
+        ("Confirm message: " + message).replace("\n", "").replace(" ", "")
+    )
+    message_read = message_read.replace(" ", "")
+    assert expected_message == message_read
 
 
 @pytest.mark.skip_t1

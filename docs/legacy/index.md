@@ -8,7 +8,7 @@ Ensure that you have Docker installed. You can follow [Docker's installation ins
 
 Clone this repository, then use `build-docker.sh` to build all images:
 ```sh
-git clone https://github.com/trezor/trezor-firmware.git
+git clone --recurse-submodules https://github.com/trezor/trezor-firmware.git
 cd trezor-firmware
 ./build-docker.sh
 ```
@@ -42,7 +42,7 @@ Make sure you have Python 3.6 or later and [Poetry](https://python-poetry.org/)
 installed.
 
 If you want to build device firmware, also make sure that you have the [GNU ARM Embedded toolchain](https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads) installed.
-See [Dockerfile](../../ci/Dockerfile#L72-L76) for up-to-date version of the toolchain.
+See [Dockerfile](https://github.com/trezor/trezor-firmware/blob/master/ci/Dockerfile) for up-to-date version of the toolchain.
 
 The build process is configured via environment variables:
 
@@ -110,6 +110,9 @@ trezorctl firmware-update -f build/legacy/firmware/firmware.bin
 
 ## Combining bootloader and firmware with various `PRODUCTION` settings, signed/unsigned
 
+This is an issue before firmware 1.11.2, historical versions need to be built according
+to this table.
+
 Not all combinations of bootloader and firmware will work. This depends on
 3 variables: PRODUCTION of bootloader, PRODUCTION of firmware, whether firmware is signed
 
@@ -118,10 +121,17 @@ This table shows the result for bootloader 1.8.0+ and 1.9.1+:
 | Bootloader PRODUCTION | Firmware PRODUCTION | Is firmware officially signed? | Result                                                                                     |
 | ------------------------- | ----------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ |
 |  1                        |  1                      | yes                            | works, official configuration                                                              |
-|  1                        |  1                      | no                             | hardfault in header.S when setting VTOR and stack                                          |
+|  1                        |  1                      | no                             | hardfault in startup.S when setting VTOR and stack                                          |
 |  0                        |  1                      | no                             | works, but don't forget to comment out `check_and_replace_bootloader`, otherwise it'll get overwritten |
-|  0                        |  0                      | no                             | hard fault because header.S doesn't set VTOR and stack right                               |
+|  0                        |  0                      | no                             | hard fault because startup.S doesn't set VTOR and stack right                               |
 |  1                        |  0                      | no                             | works                                                                                      |
 
 The other three possibilities with signed firmware and `PRODUCTION!=0` for bootloader/firmware don't exist.
+
+## Parsing existing T1 binary images with ImHex
+
+There is multi-platform hex editor [ImHex](https://github.com/WerWolv/ImHex) ([another link](https://imhex.werwolv.net/))
+that allows for parsing firmware images we distribute such as those from https://github.com/trezor/data/tree/master/firmware
+
+See `legacy/imhex/` directory in repo and `README.md` there how to use it to parse headers from existing images.
 

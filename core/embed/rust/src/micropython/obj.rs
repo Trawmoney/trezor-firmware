@@ -310,14 +310,14 @@ impl TryFrom<(Obj, Obj)> for Obj {
 impl From<u8> for Obj {
     fn from(val: u8) -> Self {
         // `u8` will fit into smallint so no error should happen here.
-        u32::from(val).try_into().unwrap()
+        unwrap!(u32::from(val).try_into())
     }
 }
 
 impl From<u16> for Obj {
     fn from(val: u16) -> Self {
         // `u16` will fit into smallint so no error should happen here.
-        u32::from(val).try_into().unwrap()
+        unwrap!(u32::from(val).try_into())
     }
 }
 
@@ -408,5 +408,20 @@ impl Obj {
             Ok(x) => Ok(Some(x)),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+impl Obj {
+    pub fn is_bytes(self) -> bool {
+        unsafe {
+            ffi::mp_type_bytes.is_type_of(self)
+                || ffi::mp_type_bytearray.is_type_of(self)
+                || ffi::mp_type_memoryview.is_type_of(self)
+        }
+    }
+
+    pub fn is_str(self) -> bool {
+        let is_type_str = unsafe { ffi::mp_type_str.is_type_of(self) };
+        is_type_str || self.is_qstr()
     }
 }

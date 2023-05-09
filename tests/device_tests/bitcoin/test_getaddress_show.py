@@ -36,11 +36,18 @@ VECTORS = (  # path, script_type, address
         messages.InputScriptType.SPENDWITNESS,
         "bc1qduvap743hcl7twn8u6f9l0u8y7x83965xy0raj",
     ),
+    (
+        "m/86h/0h/12h/0/0",
+        messages.InputScriptType.SPENDTAPROOT,
+        "bc1pnzsh9t0n0vjanwgkuf9cyrp6j6lhfe63xaekuu7qxkse93vkyvgqxn4hff",
+    ),
 )
 
 
 @pytest.mark.parametrize("path, script_type, address", VECTORS)
-def test_show(client: Client, path, script_type, address):
+def test_show(
+    client: Client, path: str, script_type: messages.InputScriptType, address: str
+):
     def input_flow():
         yield
         client.debug.press_no()
@@ -179,7 +186,12 @@ VECTORS_MULTISIG = (  # script_type, bip48_type, address, xpubs, ignore_xpub_mag
     "script_type, bip48_type, address, xpubs, ignore_xpub_magic", VECTORS_MULTISIG
 )
 def test_show_multisig_xpubs(
-    client, script_type, bip48_type, address, xpubs, ignore_xpub_magic
+    client: Client,
+    script_type: messages.InputScriptType,
+    bip48_type: int,
+    address: str,
+    xpubs: list[str],
+    ignore_xpub_magic: bool,
 ):
     nodes = [
         btc.get_public_node(
@@ -200,43 +212,32 @@ def test_show_multisig_xpubs(
 
         def input_flow():
             yield  # show address
-            lines = client.debug.wait_layout().lines  # TODO: do not need to *wait* now?
-            assert lines[0] == "Multisig 2 of 3"
-            assert "".join(lines[1:]) == address
+            layout = client.debug.wait_layout()  # TODO: do not need to *wait* now?
+            assert layout.get_title() == "MULTISIG 2 OF 3"
+            assert layout.get_content().replace(" ", "") == address
 
             client.debug.press_no()
             yield  # show QR code
-            assert client.debug.wait_layout().text.startswith("Qr")
+            assert "Painter" in client.debug.wait_layout().text
 
-            client.debug.press_no()
-            yield  # show XPUB#1
-            lines1 = client.debug.wait_layout().lines
-            assert lines1[0] == "XPUB #1 " + ("(yours)" if i == 0 else "(cosigner)")
-            client.debug.swipe_up()
+            # Three xpub pages with the same testing logic
+            for xpub_num in range(3):
+                expected_title = f"XPUB #{xpub_num + 1} " + (
+                    "(yours)" if i == xpub_num else "(cosigner)"
+                )
 
-            lines2 = client.debug.wait_layout().lines
-            assert lines2[0] == "XPUB #1 " + ("(yours)" if i == 0 else "(cosigner)")
-            assert "".join(lines1[1:] + lines2[1:]) == xpubs[0]
+                client.debug.press_no()
+                yield  # show XPUB#{xpub_num}
+                layout1 = client.debug.wait_layout()
+                assert layout1.get_title() == expected_title
+                client.debug.swipe_up()
 
-            client.debug.press_no()
-            yield  # show XPUB#2
-            lines1 = client.debug.wait_layout().lines
-            assert lines1[0] == "XPUB #2 " + ("(yours)" if i == 1 else "(cosigner)")
-            client.debug.swipe_up()
-
-            lines2 = client.debug.wait_layout().lines
-            assert lines2[0] == "XPUB #2 " + ("(yours)" if i == 1 else "(cosigner)")
-            assert "".join(lines1[1:] + lines2[1:]) == xpubs[1]
-
-            client.debug.press_no()
-            yield  # show XPUB#3
-            lines1 = client.debug.wait_layout().lines
-            assert lines1[0] == "XPUB #3 " + ("(yours)" if i == 2 else "(cosigner)")
-            client.debug.swipe_up()
-
-            lines2 = client.debug.wait_layout().lines
-            assert lines2[0] == "XPUB #3 " + ("(yours)" if i == 2 else "(cosigner)")
-            assert "".join(lines1[1:] + lines2[1:]) == xpubs[2]
+                layout2 = client.debug.wait_layout()
+                assert layout2.get_title() == expected_title
+                content = (layout1.get_content() + layout2.get_content()).replace(
+                    " ", ""
+                )
+                assert content == xpubs[xpub_num]
 
             client.debug.press_yes()
 

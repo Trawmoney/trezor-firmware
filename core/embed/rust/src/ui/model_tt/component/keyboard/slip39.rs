@@ -7,7 +7,8 @@ use crate::{
     ui::{
         component::{Component, Event, EventCtx},
         display,
-        geometry::{Offset, Rect},
+        display::toif::Icon,
+        geometry::{Offset, Rect, CENTER},
         model_tt::{
             component::{
                 keyboard::{
@@ -78,6 +79,14 @@ impl MnemonicInput for Slip39Input {
         self.complete_word_from_dictionary(ctx);
     }
 
+    /// Backspace button was long pressed, let's delete all characters of input
+    /// and clear the pending marker.
+    fn on_backspace_long_press(&mut self, ctx: &mut EventCtx) {
+        self.multi_tap.clear_pending_state(ctx);
+        self.textbox.clear(ctx);
+        self.complete_word_from_dictionary(ctx);
+    }
+
     fn is_empty(&self) -> bool {
         self.textbox.is_empty()
     }
@@ -141,7 +150,7 @@ impl Component for Slip39Input {
             {
                 assert!(!Self::keys()[key].is_empty());
                 // Now we can be sure that the looped iterator will return a value.
-                let ch = Self::keys()[key].chars().cycle().nth(press).unwrap();
+                let ch = unwrap!(Self::keys()[key].chars().cycle().nth(press));
                 text.pop();
                 text.push(ch)
                     .assert_if_debugging_ui("Text buffer is too small");
@@ -165,7 +174,7 @@ impl Component for Slip39Input {
             // Icon is painted in the right-center point, of expected size 16x16 pixels, and
             // 16px from the right edge.
             let icon_center = area.top_right().center(area.bottom_right()) - Offset::new(16 + 8, 0);
-            display::icon(icon_center, icon, style.text_color, style.button_color);
+            icon.draw(icon_center, CENTER, style.text_color, style.button_color);
         }
     }
 
@@ -196,7 +205,7 @@ impl Slip39Input {
     /// ```
     fn key_digit(key: usize) -> char {
         let index = key + 1;
-        char::from_digit(index as u32, 10).unwrap()
+        unwrap!(char::from_digit(index as u32, 10))
     }
 
     fn complete_word_from_dictionary(&mut self, ctx: &mut EventCtx) {
@@ -217,7 +226,7 @@ impl Slip39Input {
             self.button.enable(ctx);
             self.button.set_stylesheet(ctx, theme::button_confirm());
             self.button
-                .set_content(ctx, ButtonContent::Icon(theme::ICON_CONFIRM));
+                .set_content(ctx, ButtonContent::Icon(Icon::new(theme::ICON_CONFIRM)));
         } else {
             // Disabled button.
             self.button.disable(ctx);

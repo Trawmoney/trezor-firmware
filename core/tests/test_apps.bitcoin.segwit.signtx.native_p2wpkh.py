@@ -28,7 +28,7 @@ from trezor import wire
 
 from apps.common import coins
 from apps.common.keychain import Keychain
-from apps.bitcoin.keychain import get_schemas_for_coin
+from apps.bitcoin.keychain import _get_schemas_for_coin
 from apps.bitcoin.sign_tx import helpers, bitcoin
 
 
@@ -160,7 +160,7 @@ class TestSignSegwitTxNativeP2WPKH(unittest.TestCase):
             )),
         ]
 
-        ns = get_schemas_for_coin(coin)
+        ns = _get_schemas_for_coin(coin)
         keychain = Keychain(seed, coin.curve_name, ns)
         signer = bitcoin.Bitcoin(tx, keychain, coin, None).signer()
         for request, response in chunks(messages, 2):
@@ -235,6 +235,9 @@ class TestSignSegwitTxNativeP2WPKH(unittest.TestCase):
             TxRequest(request_type=TXOUTPUT, details=TxRequestDetailsType(request_index=1, tx_hash=None), serialized=EMPTY_SERIALIZED),
             TxAckOutput(tx=TxAckOutputWrapper(output=out2)),
 
+            helpers.UiConfirmForeignAddress(address_n=out2.address_n),
+            True,
+
             helpers.UiConfirmTotal(5000000 + 11000, 11000, fee_rate, coin, AmountUnit.BITCOIN),
             True,
 
@@ -292,7 +295,7 @@ class TestSignSegwitTxNativeP2WPKH(unittest.TestCase):
             )),
         ]
 
-        ns = get_schemas_for_coin(coin)
+        ns = _get_schemas_for_coin(coin)
         keychain = Keychain(seed, coin.curve_name, ns)
         signer = bitcoin.Bitcoin(tx, keychain, coin, None).signer()
         for request, expected_response in chunks(messages, 2):
@@ -352,7 +355,7 @@ class TestSignSegwitTxNativeP2WPKH(unittest.TestCase):
             None
         ]
 
-        ns = get_schemas_for_coin(coin)
+        ns = _get_schemas_for_coin(coin)
         keychain = Keychain(seed, coin.curve_name, ns)
         signer = bitcoin.Bitcoin(tx, keychain, coin, None).signer()
         for request, expected_response in chunks(messages, 2):

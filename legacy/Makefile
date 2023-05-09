@@ -1,6 +1,5 @@
 ifneq ($(EMULATOR),1)
 OBJS += setup.o
-OBJS += startup.o
 OBJS += timer.o
 endif
 
@@ -34,7 +33,8 @@ libtrezor.a:
 	@printf "  AR      $@\n"
 	$(Q)$(AR) rcs $@ $^
 
-.PHONY: vendor build_unix test_emu test_emu_ui test_emu_ui_record
+.PHONY: vendor build_unix test_emu test_emu_ui test_emu_ui_record \
+        flash_firmware_jlink flash_bootloader_jlink
 
 vendor:
 	git submodule update --init --recursive
@@ -51,3 +51,10 @@ test_emu_ui: ## run ui integration tests
 
 test_emu_ui_record: ## record and hash screens for ui integration tests
 	./script/test --ui=record --ui-check-missing $(TESTOPTS)
+
+flash_firmware_jlink:
+	JLinkExe -nogui 1 -commanderscript firmware/firmware_flash.jlink
+
+flash_bootloader_jlink:
+	JLinkExe -nogui 1 -commanderscript bootloader/bootloader_flash.jlink
+

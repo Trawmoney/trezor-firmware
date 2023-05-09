@@ -103,6 +103,8 @@ trezor.enums.DecredStakingSpendType
 import trezor.enums.DecredStakingSpendType
 trezor.enums.FailureType
 import trezor.enums.FailureType
+trezor.enums.HomescreenFormat
+import trezor.enums.HomescreenFormat
 trezor.enums.InputScriptType
 import trezor.enums.InputScriptType
 trezor.enums.MessageType
@@ -135,100 +137,36 @@ trezor.pin
 import trezor.pin
 trezor.protobuf
 import trezor.protobuf
-trezor.res
-import trezor.res
-trezor.res.resources
-import trezor.res.resources
 trezor.sdcard
 import trezor.sdcard
 trezor.strings
 import trezor.strings
 trezor.ui
 import trezor.ui
-trezor.ui.components
-import trezor.ui.components
-trezor.ui.components.common
-import trezor.ui.components.common
-trezor.ui.components.common.confirm
-import trezor.ui.components.common.confirm
-trezor.ui.components.common.text
-import trezor.ui.components.common.text
-trezor.ui.components.tt.button
-import trezor.ui.components.tt.button
-trezor.ui.components.tt.checklist
-import trezor.ui.components.tt.checklist
-trezor.ui.components.tt.confirm
-import trezor.ui.components.tt.confirm
-trezor.ui.components.tt.info
-import trezor.ui.components.tt.info
-trezor.ui.components.tt.keyboard_bip39
-import trezor.ui.components.tt.keyboard_bip39
-trezor.ui.components.tt.keyboard_slip39
-import trezor.ui.components.tt.keyboard_slip39
-trezor.ui.components.tt.num_input
-import trezor.ui.components.tt.num_input
-trezor.ui.components.tt.passphrase
-import trezor.ui.components.tt.passphrase
-trezor.ui.components.tt.pin
-import trezor.ui.components.tt.pin
-trezor.ui.components.tt.recovery
-import trezor.ui.components.tt.recovery
-trezor.ui.components.tt.reset
-import trezor.ui.components.tt.reset
-trezor.ui.components.tt.scroll
-import trezor.ui.components.tt.scroll
-trezor.ui.components.tt.swipe
-import trezor.ui.components.tt.swipe
-trezor.ui.components.tt.text
-import trezor.ui.components.tt.text
-trezor.ui.components.tt.word_select
-import trezor.ui.components.tt.word_select
-trezor.ui.constants
-import trezor.ui.constants
-trezor.ui.constants.t1
-import trezor.ui.constants.t1
-trezor.ui.constants.tr
-import trezor.ui.constants.tr
-trezor.ui.constants.tt
-import trezor.ui.constants.tt
-trezor.ui.container
-import trezor.ui.container
 trezor.ui.layouts
 import trezor.ui.layouts
-trezor.ui.layouts.altcoin
-import trezor.ui.layouts.altcoin
 trezor.ui.layouts.common
 import trezor.ui.layouts.common
+trezor.ui.layouts.fido
+import trezor.ui.layouts.fido
+trezor.ui.layouts.homescreen
+import trezor.ui.layouts.homescreen
 trezor.ui.layouts.recovery
 import trezor.ui.layouts.recovery
 trezor.ui.layouts.reset
 import trezor.ui.layouts.reset
-trezor.ui.layouts.t1
-import trezor.ui.layouts.t1
 trezor.ui.layouts.tr
 import trezor.ui.layouts.tr
-trezor.ui.layouts.tt
-import trezor.ui.layouts.tt
-trezor.ui.layouts.tt.altcoin
-import trezor.ui.layouts.tt.altcoin
-trezor.ui.layouts.tt.recovery
-import trezor.ui.layouts.tt.recovery
-trezor.ui.layouts.tt.reset
-import trezor.ui.layouts.tt.reset
 trezor.ui.layouts.tt_v2
 import trezor.ui.layouts.tt_v2
-trezor.ui.layouts.tt_v2.altcoin
-import trezor.ui.layouts.tt_v2.altcoin
+trezor.ui.layouts.tt_v2.fido
+import trezor.ui.layouts.tt_v2.fido
+trezor.ui.layouts.tt_v2.homescreen
+import trezor.ui.layouts.tt_v2.homescreen
 trezor.ui.layouts.tt_v2.recovery
 import trezor.ui.layouts.tt_v2.recovery
 trezor.ui.layouts.tt_v2.reset
 import trezor.ui.layouts.tt_v2.reset
-trezor.ui.loader
-import trezor.ui.loader
-trezor.ui.popup
-import trezor.ui.popup
-trezor.ui.qr
-import trezor.ui.qr
 trezor.ui.style
 import trezor.ui.style
 trezor.utils
@@ -351,10 +289,6 @@ apps.debug.load_device
 import apps.debug.load_device
 apps.homescreen
 import apps.homescreen
-apps.homescreen.homescreen
-import apps.homescreen.homescreen
-apps.homescreen.lockscreen
-import apps.homescreen.lockscreen
 apps.management.apply_flags
 import apps.management.apply_flags
 apps.management.apply_settings
@@ -397,6 +331,8 @@ apps.misc
 import apps.misc
 apps.misc.cipher_key_value
 import apps.misc.cipher_key_value
+apps.misc.cosi_commit
+import apps.misc.cosi_commit
 apps.misc.get_ecdh_session_key
 import apps.misc.get_ecdh_session_key
 apps.misc.get_entropy
@@ -421,6 +357,8 @@ if not utils.BITCOIN_ONLY:
     import trezor.enums.CardanoCertificateType
     trezor.enums.CardanoDerivationType
     import trezor.enums.CardanoDerivationType
+    trezor.enums.CardanoGovernanceRegistrationFormat
+    import trezor.enums.CardanoGovernanceRegistrationFormat
     trezor.enums.CardanoNativeScriptHashDisplayFormat
     import trezor.enums.CardanoNativeScriptHashDisplayFormat
     trezor.enums.CardanoNativeScriptType
@@ -457,16 +395,6 @@ if not utils.BITCOIN_ONLY:
     import trezor.enums.TezosBallotType
     trezor.enums.TezosContractType
     import trezor.enums.TezosContractType
-    trezor.ui.components.common.webauthn
-    import trezor.ui.components.common.webauthn
-    trezor.ui.components.tt.webauthn
-    import trezor.ui.components.tt.webauthn
-    trezor.ui.layouts.tt.webauthn
-    import trezor.ui.layouts.tt.webauthn
-    trezor.ui.layouts.tt_v2.webauthn
-    import trezor.ui.layouts.tt_v2.webauthn
-    trezor.ui.layouts.webauthn
-    import trezor.ui.layouts.webauthn
     apps.binance
     import apps.binance
     apps.binance.get_address
@@ -773,10 +701,14 @@ if not utils.BITCOIN_ONLY:
     import apps.webauthn.resident_credentials
     apps.zcash
     import apps.zcash
+    apps.zcash.f4jumble
+    import apps.zcash.f4jumble
     apps.zcash.hasher
     import apps.zcash.hasher
     apps.zcash.signer
     import apps.zcash.signer
+    apps.zcash.unified_addresses
+    import apps.zcash.unified_addresses
 
 # generate full alphabet
 a
